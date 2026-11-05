@@ -9,7 +9,7 @@ import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Typographie', R: 'Restes de travail' };
-const VERSION = '0.14.1';
+const VERSION = '0.14.2';
 
 const etat = {
   profil: 'notice', termes: [], ignores: {}, verifiees: {},
