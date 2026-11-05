@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { docx, lancer, regles } from './outils.js';
 import { lireDocx } from '../sources/docx.js';
-import { planifier, composer } from '../sources/composition.js';
+import { planifier, composer, lignePlan } from '../sources/composition.js';
+import { controler } from '../moteur/moteur.js';
 
 const gabarit = (nom) => readFile(new URL(`../gabarits/${nom}`, import.meta.url));
 
@@ -117,4 +118,28 @@ test('repères « à insérer » et couleurs des titres', async () => {
   for (const [id, c] of [['Titrenotice', '1F3864'], ['Titrehorsplan', '1F3864'], ['Soustitrenotice', '2E5C8A'], ['Titrecatégorie', '2E5C8A']]) {
     assert.ok(new RegExp(`w:styleId="${id}"[\\s\\S]*?<w:color w:val="${c}"/>[\\s\\S]*?</w:style>`).test(styles) && !new RegExp(`w:styleId="${id}"(?:(?!</w:style>)[\\s\\S])*<w:color w:val="000000"/>`).test(styles), id);
   }
+});
+
+test('plan de la notice : « Introduction de la partie (0,5 page) » est une sous-ligne de la partie, comptée par A12', async () => {
+  assert.deepEqual(lignePlan('Introduction de la partie (0,5 page)'), { niveau: 2, titre: 'Introduction de la partie', pages: '0,5', outil: null, partiel: true });
+  assert.deepEqual(lignePlan('Conclusion partielle de la partie (1,5 pages)').niveau, 2);
+  assert.deepEqual(lignePlan('Introduction du chapitre et transition (0,5 page)').niveau, 3);
+  assert.equal(lignePlan('Introduction (4 pages)').partiel, undefined);
+  const lignes = ['Sujet', 'Plan détaillé', 'Introduction (4 pages)', 'Partie 1 – Le constat\u00a0: les faits (10 pages)', 'Introduction de la partie (0,5 page)',
+    'Chapitre 1 – Les faits (8 pages)', 'Introduction du chapitre et transition (0,5 page)', 'Section 1 – Reçu (7,5 pages)', '§ 1 – Fichiers (7,5 pages) – outil n° 1 : table',
+    'Conclusion partielle de la partie (1,5 pages)', 'Partie 2 – La réponse (10 pages)', 'Chapitre 1 – La méthode (5 pages)', 'Chapitre 2 – La mise en œuvre (5 pages)', 'Conclusion (3 pages)'];
+  const doc = { source: 'word', blocs: lignes.map((texte, i) => ({ i, texte, label: '', titre: false, niveau: 0, role: null, style: null, tableau: null, liens: [], image: false, notes: 0, consigne: false, sautAvant: false, garde: false })) };
+  const R = await regles();
+  const plan = planifier(structuredClone(doc), R, 'notice');
+  const partiels = plan.lignes.filter((l) => l.planLigne && l.planLigne.partiel);
+  assert.equal(partiels.length, 3);
+  const octets = await composer(await gabarit('gabarit-demande-agrement.docx'), plan, 'notice', { intitule: 'Sujet', auteur: 'Prénom NOM', adresse: '75000 Ville', date: 'novembre 2026', regles: R });
+  const res = await lireDocx(octets);
+  const r = controler(res, R, { profil: 'notice', termes: [], ignores: new Set() });
+  const a12 = r.resultats.find((x) => x.regle.id === 'A12');
+  assert.ok(!a12.occurrences.some((o) => /somme des sous-niveaux/.test(o.message)), a12.occurrences.map((o) => o.message).join('\n'));
+  assert.ok(r.infos.some((i) => i.regle === 'A12' && /27 pages/.test(i.texte)), JSON.stringify(r.infos));
+  // Espace insécable du titre conservée dans la cellule du plan (F04).
+  const cellule = res.blocs.find((b) => b.tableau !== null && /Le constat/.test(b.texte));
+  assert.ok(/constat\u00a0:/.test(cellule.texte), JSON.stringify(cellule.texte));
 });

@@ -12,6 +12,8 @@ import { normaliser } from '../moteur/texte.js';
 const ZONES_CHAMP = new Set(['tdm', 'sommaire', 'liste-annexes']); // tables produites par Word (champs)
 const PREFIXE_PLAN = /^(partie|chapitre|section|§|paragraphe)\s*\d+(?:\.\d+)*\s*[-–—:.]?\s*/i;
 const NIVEAU_PLAN = { introduction: 0, conclusion: 0, partie: 1, chapitre: 2, section: 3, '§': 4, paragraphe: 4 };
+// « Introduction de la partie », « Conclusion partielle du chapitre »… (texte normalisé, sans accents).
+export const PARTIEL = /^(introduction|conclusion)(?: partielle| generale)? (?:de la|du|de) (partie|chapitre)\b/;
 const PAGES_EN_FIN = /\s*[(–—-]?\s*(\d+(?:[,.]\d+)?)\s*(?:pages?|p\.)\s*\)?\s*$/i;
 const PAGES_DANS = /\s*\((\d+(?:[,.]\d+)?)\s*(?:pages?|p\.)\)/i;
 const OUTIL_EN_FIN = /\s+[–—-]\s+(outils?\s+(?:n°\s*)?\d+\b.*)$/i;
@@ -24,15 +26,20 @@ const PUCE = /^[-–•▪◦]\s+\S/;
  * tels que tapés (les pages passent dans la colonne « pages » du tableau du plan).
  */
 export function lignePlan(texte) {
-  const m = /^(introduction|conclusion|partie|chapitre|section|§|paragraphe)(?![a-z])/.exec(normaliser(texte).replace(/^[•▪◦-]\s*/, ''));
+  const n = normaliser(texte).replace(/^[•▪◦-]\s*/, '');
+  const m = /^(introduction|conclusion|partie|chapitre|section|§|paragraphe)(?![a-z])/.exec(n);
   if (!m) return null;
   let titre = texte.replace(/^[•▪◦-]\s*/, '');
+  // Introduction ou conclusion partielle d'une partie ou d'un chapitre (Note, p. 15) : sous-ligne du niveau au-dessus,
+  // comptée dans sa somme de pages (A12), en italique et sans fond dans le tableau.
+  const partiel = PARTIEL.exec(n);
   let outil = null;
   const o = OUTIL_EN_FIN.exec(titre);
   if (o) { outil = o[1]; titre = titre.slice(0, o.index); }
   let pages = null;
   const p = PAGES_EN_FIN.exec(titre) || PAGES_DANS.exec(titre);
-  if (p) { pages = p[1].replace('.', ','); titre = (titre.slice(0, p.index) + titre.slice(p.index + p[0].length)).replace(/\s+/g, ' ').trim(); }
+  if (p) { pages = p[1].replace('.', ','); titre = (titre.slice(0, p.index) + titre.slice(p.index + p[0].length)).replace(/[^\S\u00a0\u202f]+/g, ' ').trim(); }
+  if (partiel) return { niveau: partiel[2] === 'partie' ? 2 : 3, titre, pages, outil, partiel: true };
   return { niveau: NIVEAU_PLAN[m[1]], titre, pages, outil };
 }
 
@@ -380,10 +387,10 @@ export function tableauTape(rangees) {
 export function tableauDuPlan(lignes) {
   const pages = 1100;
   return tableauXml([LARGEUR_TEXTE - pages, pages], lignes.map((l) => {
-    const fond = l.niveau <= 1 ? GRIS_FONCE : l.niveau === 2 ? GRIS_CLAIR : null;
-    const gras = l.niveau <= 2;
+    const fond = l.partiel ? null : l.niveau <= 1 ? GRIS_FONCE : l.niveau === 2 ? GRIS_CLAIR : null;
+    const gras = l.niveau <= 2 && !l.partiel;
     const retrait = [0, 0, 284, 567, 851][l.niveau];
-    const paragraphes = [{ texte: l.titre, gras, italique: l.niveau === 4, retrait }];
+    const paragraphes = [{ texte: l.titre, gras, italique: l.niveau === 4 || !!l.partiel, retrait }];
     if (l.outil) paragraphes.push({ texte: l.outil, souligne: true, retrait: retrait + 284 });
     return { cellules: [{ fond, paragraphes }, { fond, paragraphes: l.pages ? [{ texte: `${l.pages} ${Number(l.pages.replace(',', '.')) <= 1 ? 'page' : 'pages'}`, gras: l.niveau <= 1, centre: true }] : [] }] };
   }));
@@ -400,7 +407,7 @@ function entreesDesTables(doc, regles, champsGabarit) {
   // Pages numérotées à partir de 1 après la page de garde (section 2 du gabarit).
   const garde = Math.max(1, ...doc.blocs.filter((b) => b.garde).map((b) => pages.get(b.i) || 1));
   const titres = doc.blocs.filter((b) => b.titre && !b.garde && b.tableau === null && pages.has(b.i));
-  const entree = (b, niveau) => ({ niveau, texte: `${b.label || ''}${b.texte}`.replace(/\s+/g, ' ').trim(), page: Math.max(1, pages.get(b.i) - garde) });
+  const entree = (b, niveau) => ({ niveau, texte: `${b.label || ''}${b.texte}`.replace(/[^\S\u00a0\u202f]+/g, ' ').trim(), page: Math.max(1, pages.get(b.i) - garde) });
   const resultat = {};
   for (const [zone, { instr }] of Object.entries(champsGabarit)) {
     // Niveaux de plan (\\o "1-n") et styles nommés (\\t "Titre annexe,1").

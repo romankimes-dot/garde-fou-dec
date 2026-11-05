@@ -25,7 +25,7 @@ Accueil, Compléments, « Plus de compléments », « Mes compléments », « Ch
   | Partie, Chapitre, Section, § du mémoire | Titre 1 à 4, numéros automatiques « Partie 1 – » |
   | Catégorie de la bibliographie | Titre catégorie |
   | Annexe | Titre annexe, numéro automatique « Annexe 1 – » |
-  | Plan synthétique et plan détaillé de la notice (lignes « Partie n – … (n pages) ») | Tableau « intitulé / pages » : introduction, conclusion et parties en gras sur gris foncé, chapitres en gras sur gris clair, sections en retrait, § en italique, outil souligné sous son § ; le nombre de pages tapé passe dans la colonne de droite |
+  | Plan synthétique et plan détaillé de la notice (lignes « Partie n – … (n pages) », « § n – … (n page) – outil n° n : nom » ; sous-lignes « Introduction de la partie (0,5 page) », « Conclusion partielle de la partie (1,5 pages) », « Introduction du chapitre et transition (0,5 page) », comptées dans la somme des pages du niveau au-dessus par A12) | Tableau « intitulé / pages » : introduction, conclusion et parties en gras sur gris foncé, chapitres en gras sur gris clair, sections en retrait, § en italique, outil souligné sous son § ; le nombre de pages tapé passe dans la colonne de droite |
   | Tableau tapé en texte (cellules séparées par « \| ») | Vrai tableau Word, première ligne en en-tête grisé répété, colonnes au prorata du texte |
   | Légende « Tableau n – … », « Figure n – … » | Légende (liée au tableau) |
   | « Source : … », « Réalisé par l'auteur » | Source (juste sous le tableau, liée à sa dernière ligne) |
@@ -77,6 +77,8 @@ Le PDF exporté reste la référence pour la pagination exacte (`scripts/mise-en
 | `tests/` | Gabarits et documents fictifs (`fabriquer-fixtures.py`), modèle officiel de l'annexe n° 1, tests |
 
 Nouvelle version : `python3 outils/version.py 1.2.3` (volet, manifeste et paramètre `?v=` de chaque fichier chargé, pour que Word ne mélange jamais deux versions en cache).
+
+**Texte brut venu de dec-memoire** : `python3 -I scripts/mise-en-forme/exporter-trame.py` (dépôt dec-memoire) écrit `06_notice/export/trame-notice.txt` et `trame-memoire.txt` dans ce format exact (titres de la Note, plans, tableaux « | », typographie), à coller dans un document Word vierge puis onglet Gabarit. Les crochets « [Texte du candidat] » marquent ce que le candidat écrit ; F01 les signale jusqu'au dernier.
 
 Vérifier la mise en forme au gabarit sans Word : `node outils/verifier-mise-en-forme.mjs SOURCE.docx notice|memoire [RESULTAT.docx] [--pdf]` (texte conservé dans l'ordre, styles, tableaux, page de garde, consignes restées, alertes de Garde-fou apparues, rendu LibreOffice). Boucle de correction avec Claude Code : commande `/verifier-gabarit` (`.claude/commands/verifier-gabarit.md`) ; documents réels dans `tests/local/`, ignoré par Git.
 
