@@ -6,20 +6,21 @@
   <title>Garde-fou DEC</title>
   <!-- Bibliothèque officielle des compléments Office (obligatoire, servie par Microsoft). -->
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-  <link rel="stylesheet" href="taskpane.css?v=0.8.0">
+  <link rel="stylesheet" href="taskpane.css?v=0.9.0">
   <!-- Tous les modules à la même version (voir outils/version.py). -->
   <script type="importmap">
   {
     "imports": {
-      "./sources/docx.js": "./sources/docx.js?v=0.8.0",
-      "./sources/office.js": "./sources/office.js?v=0.8.0",
-      "./sources/correction.js": "./sources/correction.js?v=0.8.0",
-      "./sources/zip.js": "./sources/zip.js?v=0.8.0",
-      "./sources/xml.js": "./sources/xml.js?v=0.8.0",
-      "./moteur/moteur.js": "./moteur/moteur.js?v=0.8.0",
-      "./moteur/controles.js": "./moteur/controles.js?v=0.8.0",
-      "./moteur/structure.js": "./moteur/structure.js?v=0.8.0",
-      "./moteur/texte.js": "./moteur/texte.js?v=0.8.0"
+      "./sources/docx.js": "./sources/docx.js?v=0.9.0",
+      "./sources/office.js": "./sources/office.js?v=0.9.0",
+      "./sources/correction.js": "./sources/correction.js?v=0.9.0",
+      "./sources/composition.js": "./sources/composition.js?v=0.9.0",
+      "./sources/zip.js": "./sources/zip.js?v=0.9.0",
+      "./sources/xml.js": "./sources/xml.js?v=0.9.0",
+      "./moteur/moteur.js": "./moteur/moteur.js?v=0.9.0",
+      "./moteur/controles.js": "./moteur/controles.js?v=0.9.0",
+      "./moteur/structure.js": "./moteur/structure.js?v=0.9.0",
+      "./moteur/texte.js": "./moteur/texte.js?v=0.9.0"
     }
   }
   </script>
@@ -53,6 +54,7 @@
     <button role="tab" id="onglet-alertes" aria-controls="panneau-alertes" aria-selected="true" type="button">Alertes <span class="compteur" id="compte-alertes"></span></button>
     <button role="tab" id="onglet-exigences" aria-controls="panneau-exigences" aria-selected="false" type="button">Exigences <span class="compteur" id="compte-exigences"></span></button>
     <button role="tab" id="onglet-mesures" aria-controls="panneau-mesures" aria-selected="false" type="button">Mesures</button>
+    <button role="tab" id="onglet-forme" aria-controls="panneau-forme" aria-selected="false" type="button" title="Mise en forme au gabarit du jury">Gabarit</button>
     <button role="tab" id="onglet-reglages" aria-controls="panneau-reglages" aria-selected="false" type="button" aria-label="Réglages" title="Réglages">
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
     </button>
@@ -121,6 +123,37 @@
       </section>
     </section>
 
+    <section id="panneau-forme" role="tabpanel" aria-labelledby="onglet-forme" hidden>
+      <div class="carte-simple">
+        <h2 class="titre-section">Du texte simple au gabarit du jury</h2>
+        <p class="discret">Collez votre texte, sans mise en forme, dans ce document : titres des pièces (« Notice explicative », « Plan détaillé », « Bibliographie »…), sections « 1. Intérêt du sujet et problématique »…, et pour le mémoire « Partie 1 – … », « Chapitre 1 – … ». Le complément crée un <strong>nouveau document</strong> au gabarit (Times 12, interligne 1,5, marges, page de garde, table des matières, numéros de page) ; ce document-ci n'est pas modifié. Aucun texte n'est écrit par l'outil.</p>
+      </div>
+      <div class="carte-simple">
+        <h2 class="titre-section">Page de garde</h2>
+        <div class="champs">
+          <label>Intitulé du sujet<input id="champ-intitule" type="text" autocomplete="off"></label>
+          <label>Prénom NOM<input id="champ-auteur" type="text" autocomplete="off"></label>
+          <label>Adresse personnelle (au minimum code postal et ville)<input id="champ-adresse" type="text" autocomplete="off"></label>
+          <label class="pour-notice">Mois et année de dépôt<input id="champ-date" type="text" autocomplete="off"></label>
+          <label class="pour-memoire">Session<input id="champ-session" type="text" autocomplete="off" placeholder="Session d'automne (novembre) 2027"></label>
+        </div>
+        <p class="discret">Ces informations restent dans ce navigateur. Laissées vides, les repères du gabarit restent en place (Garde-fou les signalera).</p>
+      </div>
+      <div class="ligne-boutons">
+        <button id="analyser-forme" type="button">Analyser mon texte</button>
+        <button id="creer-forme" type="button" class="principal petit" hidden>Créer le document au gabarit</button>
+      </div>
+      <div id="resultat-forme"></div>
+      <div class="carte-simple">
+        <h2 class="titre-section">Gabarits vierges</h2>
+        <p class="discret">Pour écrire directement dans le bon format (Word en ligne ou sur ordinateur) : ouvrir, puis Fichier, Enregistrer une copie.</p>
+        <div class="ligne-boutons">
+          <a class="bouton-lien" href="gabarits/gabarit-demande-agrement.docx" download target="_blank" rel="noopener">Demande d'agrément (.docx)</a>
+          <a class="bouton-lien" href="gabarits/gabarit-memoire.docx" download target="_blank" rel="noopener">Mémoire (.docx)</a>
+        </div>
+      </div>
+    </section>
+
     <section id="panneau-reglages" role="tabpanel" aria-labelledby="onglet-reglages" hidden>
       <div class="carte-simple">
         <label for="termes" class="titre-section">Termes à ne jamais voir apparaître</label>
@@ -143,6 +176,6 @@
   </main>
 
   <footer class="pied" id="pied"></footer>
-  <script type="module" src="taskpane.js?v=0.8.0"></script>
+  <script type="module" src="taskpane.js?v=0.9.0"></script>
 </body>
 </html>

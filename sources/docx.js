@@ -3,6 +3,7 @@
 
 import { lireZip } from './zip.js';
 import { analyserXml, enfants, premier, val, chercher, tous, texteBrut } from './xml.js';
+import { tableauxDuCorps } from './composition.js';
 
 // Styles des gabarits du dépôt (scripts/mise-en-forme/gabarits.py) : nom en minuscules -> [rôle, niveau].
 export const STYLES_TITRES = {
@@ -463,6 +464,7 @@ export async function lirePaquet(zip, source = 'docx') {
     entetes,
     proprietes,
     labelsLus: true,
+    tableauxXml: tableauxDuCorps(docXml),
     miseEnPage: {
       sections: miseEnPageSections,
       normal: {

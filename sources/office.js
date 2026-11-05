@@ -2,6 +2,7 @@
 // vers le modèle commun du moteur. Lecture seule : rien n'est écrit dans le document.
 
 import { STYLES_TITRES, STYLES_CONSIGNE, paquetPlat, lirePaquet, piedPlat } from './docx.js';
+import { tableauxDuCorps } from './composition.js';
 
 const BUILTIN_TITRE = /^Heading([1-9])$/;
 const BUILTIN_TOC = /^Toc([1-9])$/;
@@ -131,12 +132,15 @@ export async function lireWord() {
 
     // Mise en page : le contenu Open XML du corps (styles, sections, mise en forme) est relu par le lecteur .docx.
     let miseEnPage = null;
+    let tableauxXml = [];
     let ooxml = 'non lu';
     try {
       const corps = document.body.getOoxml();
       const pieds = sections.items.map((s) => s.getFooter('Primary').getOoxml());
       await context.sync();
-      const lu = await lirePaquet(paquetPlat(corps.value), 'word');
+      const paquet = paquetPlat(corps.value);
+      const lu = await lirePaquet(paquet, 'word');
+      tableauxXml = tableauxDuCorps(await paquet.texte('word/document.xml') || '');
       const analyses = [];
       for (const p of pieds) analyses.push(await piedPlat(p.value));
       miseEnPage = lu.miseEnPage;
@@ -189,6 +193,7 @@ export async function lireWord() {
       proprietes,
       labelsLus: true,
       miseEnPage,
+      tableauxXml,
       diagnostic: {
         paragraphes: blocs.length,
         titres: blocs.filter((b) => b.titre).length,
@@ -228,6 +233,17 @@ export async function selectionnerParagraphe(i, passage = null) {
       } catch { /* recherche refusée : paragraphe entier */ }
     }
     p.select('Select');
+    await context.sync();
+    return true;
+  });
+}
+
+/** Ouvre un nouveau document Word à partir d'un .docx (base64). Rend false si cette version de Word ne le permet pas. */
+export async function ouvrirNouveauDocument(base64) {
+  if (!api('1.3')) return false;
+  return Word.run(async (context) => {
+    const d = context.application.createDocument(base64);
+    d.open();
     await context.sync();
     return true;
   });

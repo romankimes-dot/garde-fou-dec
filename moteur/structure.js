@@ -98,6 +98,8 @@ export function analyserStructure(doc, regles) {
         if (plan) b.niveau = b.niveau || plan.niveau;
       }
     }
+    // Style « Titre notice » sur un intitulé qui n'est pas l'une des sept sections : titre ordinaire (A09 le signale).
+    if (b.role === 'section-notice' && !b.sectionNotice) { b.role = 'plan'; b.niveau = 2; }
     if (b.titre && b.role === 'plan') b.plan = plan;
     if (b.titre && b.zone) zoneCourante = b.zone;
     else if (b.titre && (b.role === 'annexe' || (b.niveau === 1 && !LISTES.has(zoneCourante)))) zoneCourante = null;

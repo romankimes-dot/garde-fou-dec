@@ -349,3 +349,17 @@ body.correction-en-cours .confirmation button { pointer-events: none; opacity: .
 
 .exigence.na .icone, .exigence.na .statut-ex { color: var(--discret); }
 .exigence.na { opacity: .8; }
+
+.champs { display: grid; gap: 8px; margin: 6px 0; }
+.champs label { display: grid; gap: 3px; font-size: 12px; color: var(--discret); }
+.champs input { font: inherit; font-size: 13px; color: var(--texte); background: var(--surface-2); border: 1px solid var(--bord-fort); border-radius: 6px; padding: 6px 8px; }
+body.profil-notice .pour-memoire, body.profil-memoire .pour-notice { display: none; }
+.bouton-lien { display: inline-block; text-decoration: none; color: var(--accent); border: 1px solid var(--accent); border-radius: 8px; padding: 5px 10px; font-size: 12px; }
+.bouton-lien:hover { background: var(--accent-clair); }
+#panneau-forme > .ligne-boutons { margin: 0 0 10px; }
+.styles-forme { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.styles-forme span { font-size: 11px; background: var(--surface-2); border: 1px solid var(--bord); border-radius: 10px; padding: 1px 8px; }
+.liste-forme { list-style: none; margin: 6px 0 0; padding: 0; max-height: 320px; overflow: auto; font-size: 12px; }
+.liste-forme li { display: grid; grid-template-columns: 96px 1fr; gap: 6px; padding: 4px 0; border-top: 1px solid var(--bord); }
+.liste-forme .style { font: 600 10.5px ui-monospace, Menlo, monospace; color: var(--accent); }
+.liste-forme .gras { font-weight: 700; }
