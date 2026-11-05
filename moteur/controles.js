@@ -996,7 +996,9 @@ function B08(doc, S, { p }) {
     // Intitulé en capitales (titre tapé, ligne de plan) : ses mots ne sont pas des sigles.
     const lettres = b.texte.match(/\p{L}/gu) || [];
     if (lettres.length >= 8 && (b.texte.match(/\p{Lu}/gu) || []).length / lettres.length > 0.6) continue;
-    if (!estTexte(b) || S.dans('biblio', b.i) || S.dans('abreviations', b.i) || S.dans('sommaire', b.i) || S.dans('tdm', b.i)) continue;
+    // Plans de la notice : lignes de titres (comme le sommaire), le sigle se développe dans le texte des sections.
+    if (!estTexte(b) || S.dans('biblio', b.i) || S.dans('abreviations', b.i) || S.dans('sommaire', b.i) || S.dans('tdm', b.i)
+      || S.dans('plan-synth', b.i) || S.dans('plan-det', b.i)) continue;
     const t = b.texte;
     for (const m of t.matchAll(SIGLE)) {
       const s = m[1];
