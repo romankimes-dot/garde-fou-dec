@@ -84,6 +84,7 @@ body.depot-survol { outline: 3px dashed var(--accent); outline-offset: -6px; }
 .feu.rouge .pastille { background: var(--rouge); }
 .feu.orange .pastille { background: var(--orange); }
 .feu.vert .pastille { background: var(--vert); }
+.synthese .copier { margin-top: 8px; font-size: 12px; padding: 4px 8px; }
 
 .infos { font-size: 12px; color: var(--discret); margin: 0 0 10px; padding-left: 2px; }
 .infos p { margin: 2px 0; }
@@ -92,6 +93,10 @@ body.depot-survol { outline: 3px dashed var(--accent); outline-offset: -6px; }
 .regle { background: var(--surface); border: 1px solid var(--bord); border-radius: 8px; margin-bottom: 6px; }
 .regle > summary { list-style: none; cursor: pointer; padding: 8px 10px; display: flex; gap: 8px; align-items: baseline; }
 .regle > summary::-webkit-details-marker { display: none; }
+.regle > summary::before { content: "▸"; color: var(--discret); font-size: 11px; width: 10px; flex: none; transition: transform .12s; }
+.regle[open] > summary::before { transform: rotate(90deg); }
+.regle > summary:hover { background: var(--survol); border-radius: 8px; }
+.regle[open] > summary:hover { border-radius: 8px 8px 0 0; }
 .regle > summary .nom { flex: 1; font-weight: 600; }
 .badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; white-space: nowrap; }
 .badge.bloquant { background: var(--rouge-fond); color: var(--rouge); }

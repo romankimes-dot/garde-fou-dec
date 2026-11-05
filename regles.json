@@ -21,7 +21,7 @@
     "mention_page_de_garde_notice": "Demande d'agrément du sujet de mémoire présentée en vue de l'obtention du diplôme d'expertise comptable",
     "styles_exemptes": ["caption", "source", "consigne", "texte tableau", "footnote text", "footer", "header", "page de garde", "title", "toc heading", "cellule"],
     "majuscules_accentuees": ["Etat", "Etats", "Etablissement", "Etablissements", "Etude", "Etudes", "Ecole", "Economie", "Economique", "Element", "Elements", "Evaluation", "Equipe", "Etape", "Etapes", "Egalement", "Evidemment", "Ecart", "Ecarts", "Echeance", "Echeances", "Edition", "Ethique", "Emission", "Ecriture", "Ecritures", "Evenement", "Evenements", "Etablir", "Etant", "Etait", "Etaient", "Eviter", "Elaboration", "Ere"],
-    "sigles_exemptes": [],
+    "sigles_exemptes": ["PDF", "URL", "API", "UE", "UK", "US", "USA", "FR", "EN", "OK"],
     "notice_sections": [
       { "titre": "Intérêt du sujet et problématique", "motif": "interet du sujet" },
       { "titre": "Objectifs poursuivis", "motif": "objectifs poursuivis" },
