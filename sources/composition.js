@@ -6,9 +6,35 @@ import { lireZip, ecrireZip } from './zip.js';
 import { analyserStructure, lirePlan } from '../moteur/structure.js';
 import { lireDocx } from './docx.js';
 import { pagesDesTitres } from '../moteur/moteur.js';
+import { cellulesTapees } from '../moteur/controles.js';
+import { normaliser } from '../moteur/texte.js';
 
 const ZONES_CHAMP = new Set(['tdm', 'sommaire', 'liste-annexes']); // tables produites par Word (champs)
 const PREFIXE_PLAN = /^(partie|chapitre|section|§|paragraphe)\s*\d+(?:\.\d+)*\s*[-–—:.]?\s*/i;
+const NIVEAU_PLAN = { introduction: 0, conclusion: 0, partie: 1, chapitre: 2, section: 3, '§': 4, paragraphe: 4 };
+const PAGES_EN_FIN = /\s*[(–—-]?\s*(\d+(?:[,.]\d+)?)\s*(?:pages?|p\.)\s*\)?\s*$/i;
+const PAGES_DANS = /\s*\((\d+(?:[,.]\d+)?)\s*(?:pages?|p\.)\)/i;
+const OUTIL_EN_FIN = /\s+[–—-]\s+(outils?\s+(?:n°\s*)?\d+\b.*)$/i;
+const LEGENDE = /^(tableau|figure|graphique|sch[ée]ma)\s*(?:n°\s*)?\d+\s*[-–—:.]/i;
+const SOURCE = /^(sources?\s*:|r[ée]alis[ée] par l'auteur)/i;
+const PUCE = /^[-–•▪◦]\s+\S/;
+
+/**
+ * Ligne d'un plan de la notice : niveau (0 introduction ou conclusion, 1 à 4 P/C/S/§), intitulé, pages et outil,
+ * tels que tapés (les pages passent dans la colonne « pages » du tableau du plan).
+ */
+export function lignePlan(texte) {
+  const m = /^(introduction|conclusion|partie|chapitre|section|§|paragraphe)(?![a-z])/.exec(normaliser(texte).replace(/^[•▪◦-]\s*/, ''));
+  if (!m) return null;
+  let titre = texte.replace(/^[•▪◦-]\s*/, '');
+  let outil = null;
+  const o = OUTIL_EN_FIN.exec(titre);
+  if (o) { outil = o[1]; titre = titre.slice(0, o.index); }
+  let pages = null;
+  const p = PAGES_EN_FIN.exec(titre) || PAGES_DANS.exec(titre);
+  if (p) { pages = p[1].replace('.', ','); titre = (titre.slice(0, p.index) + titre.slice(p.index + p[0].length)).replace(/\s+/g, ' ').trim(); }
+  return { niveau: NIVEAU_PLAN[m[1]], titre, pages, outil };
+}
 
 /**
  * Plan de mise en forme : pour chaque paragraphe du texte, le style du gabarit (ou l'omission, avec sa raison).
@@ -39,11 +65,28 @@ export function planifier(doc, regles, profil) {
 
     if (b.titre && b.zone && ZONES_CHAMP.has(b.zone)) { lignes.push({ i: b.i, texte, champ: b.zone }); return; }
     if (b.titre && b.zone) { lignes.push({ i: b.i, texte, style: 'Titrehorsplan' }); return; }
+    const dansPlan = S.dans('plan-det', b.i) || S.dans('plan-synth', b.i);
+    // Plans de la notice : tableau « intitulé | pages » (niveaux en retrait, parties et chapitres marqués).
+    if (profil === 'notice' && dansPlan) {
+      const pl = lignePlan(texte);
+      if (pl) { lignes.push({ i: b.i, texte, planLigne: pl }); return; }
+    }
+    // Tableau tapé en texte (cellules séparées par « | ») : un vrai tableau, première ligne en en-tête.
+    const cellules = !dansPlan && cellulesTapees(texte);
+    if (cellules) {
+      const dernier = lignes[lignes.length - 1];
+      if (dernier && dernier.tableauTexte && dernier.tableauTexte[0].length === cellules.length) dernier.tableauTexte.push(cellules);
+      else lignes.push({ i: b.i, texte, tableauTexte: [cellules] });
+      return;
+    }
+    if (LEGENDE.test(texte) && texte.length <= 200) { lignes.push({ i: b.i, texte, style: 'Caption' }); return; }
+    if (SOURCE.test(texte) && texte.length <= 300) { lignes.push({ i: b.i, texte, style: 'Source' }); return; }
+    if (S.dans('biblio', b.i) && !b.titre) { lignes.push({ i: b.i, texte, style: 'Referencebiblio' }); return; }
+    if (PUCE.test(texte) && !dansPlan) { lignes.push({ i: b.i, texte, style: 'Listetirets' }); return; }
     if (b.titre && b.role === 'section-notice') { lignes.push({ i: b.i, texte, style: 'Titrenotice' }); return; }
     if (b.titre && b.role === 'categorie') { lignes.push({ i: b.i, texte, style: 'Titrecatégorie' }); return; }
     // Annexe : numéro automatique du gabarit (« Annexe n – »), le numéro tapé ou hérité est retiré.
     if (b.titre && b.role === 'annexe') { lignes.push({ i: b.i, texte: texte.replace(/^annexe\s*(?:n°\s*)?\d+\s*[-–—:.]?\s*/i, ''), style: 'Titreannexe' }); return; }
-    const dansPlan = S.dans('plan-det', b.i) || S.dans('plan-synth', b.i);
     // Texte simple du mémoire : « Partie 1 – … », « Chapitre 2 – … » reconnus à leur début.
     const pl = !dansPlan && texte.length <= 160 && !/[.;,]$/.test(texte) ? lirePlan(texte) : null;
     if (profil === 'memoire' && !dansPlan && (pl || (b.titre && b.role === 'plan'))) {
@@ -60,7 +103,7 @@ export function planifier(doc, regles, profil) {
     }
     // Sous-titre court de la notice (titre stylé, ou ligne courte suivie d'un paragraphe plus long) : en gras.
     const suivant = copie.blocs.slice(k + 1).find((x) => x.texte.trim());
-    const sousTitre = !dansPlan && S.notice && b.i >= S.notice.debut && b.i < S.notice.fin
+    const sousTitre = !dansPlan && !/^\[/.test(texte) && S.notice && b.i >= S.notice.debut && b.i < S.notice.fin
       && (b.titre || (texte.length <= 120 && !/[.:;,]$/.test(texte) && suivant && suivant.texte.length > texte.length * 1.5 && !/^[•▪◦\-–]/.test(texte)));
     // Sous-titre de la notice : style « Sous-titre notice » (niveau 3, dans la table des matières) ; numéro « 1.1 »
     // retiré (découpage proscrit par la Note, p. 14), comme le propose A06.
@@ -180,9 +223,10 @@ export async function composer(gabarit, plan, profil, champs) {
       const titre = texteDe(elements[k - 1]).toLowerCase();
       const zone = titre.startsWith('sommaire') ? 'sommaire' : titre.startsWith('liste des annexes') ? 'liste-annexes' : 'tdm';
       let instr = (/<w:instrText[^>]*>([^<]*)</.exec(x) || [])[1] || ' TOC \\o "1-2" \\h \\z \\u ';
-      // Notice : sous-titres (niveau 3) dans la table ; mémoire : annexes dans la table des matières.
+      // Notice : sous-titres (niveau 3) dans la table.
       if (profil === 'notice' && zone === 'tdm') instr = instr.replace(/\\o "1-2"/, '\\o "1-3"');
-      if (profil === 'memoire' && zone === 'tdm' && !/\\t /.test(instr)) instr = instr.replace(/\s*$/, ' \\t "Titre annexe,1" ');
+      // Annexes (style « Titre annexe ») dans la table des matières : mémoire et notice (annexe 1 de la charte IA).
+      if (zone === 'tdm' && !/\\t /.test(instr)) instr = instr.replace(/\s*$/, ' \\t "Titre annexe,1" ');
       // Titre du sommaire et de la table des matières : style hors table (sinon la table se liste elle-même).
       const titreXml = zone === 'liste-annexes' ? elements[k - 1] : elements[k - 1].replace('<w:pStyle w:val="Titrehorsplan"/>', '<w:pStyle w:val="Titrehorstable"/>');
       champsGabarit[zone] = { titre: titreXml, instr };
@@ -191,19 +235,33 @@ export async function composer(gabarit, plan, profil, champs) {
 
   const corps = [];
   const poses = new Set();
+  let lignesPlan = [];
+  const fermerPlan = () => { if (lignesPlan.length) corps.push(tableauDuPlan(lignesPlan)); lignesPlan = []; };
   for (const l of plan.lignes) {
     if (l.omis) continue;
+    if (l.planLigne) { lignesPlan.push(l.planLigne); continue; }
+    fermerPlan();
+    if (l.tableauTexte) { corps.push(tableauTape(l.tableauTexte)); continue; }
     if (l.tableau !== undefined) {
       const xml = (champs.tableaux || [])[l.tableau];
-      // Un paragraphe vide après chaque tableau : deux tableaux ne se collent pas, et Word l'exige en fin de cellule.
-      corps.push(xml ? `${nettoyerTableau(xml)}<w:p/>` : paragraphe(`[Tableau ${l.tableau + 1} à recopier ici]`, 'Consigne'));
+      corps.push(xml ? nettoyerTableau(xml) : paragraphe(`[Tableau ${l.tableau + 1} à recopier ici]`, 'Consigne'));
       continue;
     }
     if (l.champ) {
       if (champsGabarit[l.champ] && !poses.has(l.champ)) { corps.push({ champ: l.champ }); poses.add(l.champ); }
       continue;
     }
-    corps.push(paragraphe(l.texte, l.style, l.gras));
+    // « Source : … » sous un tableau : un léger espace au-dessus (le style du gabarit n'en prévoit pas).
+    const xml = paragraphe(l.texte, l.style, l.gras);
+    corps.push(l.style === 'Source' ? xml.replace('<w:pStyle w:val="Source"/>', '<w:pStyle w:val="Source"/><w:spacing w:before="60"/>') : xml);
+  }
+  fermerPlan();
+  // Un paragraphe vide après un tableau suivi d'un autre tableau, d'une table ou de la fin du corps (Word l'exige) ;
+  // sinon le paragraphe suivant (« Source : … ») suit le tableau sans ligne blanche.
+  for (let k = corps.length - 1; k >= 0; k--) {
+    const x = corps[k];
+    const suivant = corps[k + 1];
+    if (typeof x === 'string' && x.startsWith('<w:tbl') && (suivant === undefined || typeof suivant !== 'string' || suivant.startsWith('<w:tbl'))) corps.splice(k + 1, 0, '<w:p/>');
   }
   // Tables attendues absentes du texte : sommaire en tête (mémoire), table des matières en tête (notice) ou en fin (mémoire).
   const tete = [];
@@ -223,6 +281,70 @@ export async function composer(gabarit, plan, profil, champs) {
   const brouillon = await assembler({});
   if (!champs.regles) return brouillon;
   return assembler(entreesDesTables(await lireDocx(brouillon), champs.regles, champsGabarit));
+}
+
+// ---------------------------------------------------------------- tableaux composés
+
+const LARGEUR_TEXTE = 9072; // A4, marges de 2,5 cm : largeur utile en vingtièmes de point
+const GRIS_FONCE = 'D9D9D9';
+const GRIS_CLAIR = 'F2F2F2';
+
+/** Paragraphe de cellule (style « Texte tableau ») : { texte, gras, italique, souligne, retrait, centre }. */
+function paragrapheCellule({ texte, gras, italique, souligne, retrait = 0, centre = false, lie = false }) {
+  const rPr = `${gras ? '<w:b/>' : ''}${italique ? '<w:i/>' : ''}${souligne ? '<w:u w:val="single"/>' : ''}`;
+  const pPr = `<w:pStyle w:val="Textetableau"/>${lie ? '<w:keepNext/>' : ''}${retrait ? `<w:ind w:left="${retrait}"/>` : ''}${centre ? '<w:jc w:val="center"/>' : ''}`;
+  return `<w:p><w:pPr>${pPr}</w:pPr><w:r>${rPr ? `<w:rPr>${rPr}</w:rPr>` : ''}<w:t xml:space="preserve">${echapper(texte)}</w:t></w:r></w:p>`;
+}
+
+// Dernière rangée liée au paragraphe suivant : la mention « Source : … » ne part pas seule sur la page suivante.
+function celluleXml(paragraphes, largeur, fond, lie = false) {
+  const tcPr = `<w:tcW w:w="${largeur}" w:type="dxa"/>${fond ? `<w:shd w:val="clear" w:color="auto" w:fill="${fond}"/>` : ''}<w:vAlign w:val="center"/>`;
+  const p = paragraphes.map((x) => paragrapheCellule({ ...x, lie })).join('') || (lie ? '<w:p><w:pPr><w:keepNext/></w:pPr></w:p>' : '<w:p/>');
+  return `<w:tc><w:tcPr>${tcPr}</w:tcPr>${p}</w:tc>`;
+}
+
+function tableauXml(largeurs, rangees) {
+  const grille = largeurs.map((w) => `<w:gridCol w:w="${w}"/>`).join('');
+  const tblPr = `<w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="${LARGEUR_TEXTE}" w:type="dxa"/><w:tblLayout w:type="fixed"/>`
+    + '<w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="85" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="85" w:type="dxa"/></w:tblCellMar>'
+    + '<w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/></w:tblPr>';
+  const tr = rangees.map((r, k) => `<w:tr><w:trPr><w:cantSplit/>${r.entete ? '<w:tblHeader/>' : ''}</w:trPr>`
+    + r.cellules.map((c, j) => celluleXml(c.paragraphes, largeurs[j], c.fond, k === rangees.length - 1 && rangees.length > 1)).join('') + '</w:tr>').join('');
+  return `<w:tbl>${tblPr}<w:tblGrid>${grille}</w:tblGrid>${tr}</w:tbl>`;
+}
+
+/** Tableau tapé en texte (« a | b | c ») : colonnes au prorata du texte, première ligne en en-tête grisée. */
+export function tableauTape(rangees) {
+  const n = rangees[0].length;
+  // Largeur de colonne : au prorata du texte (plafonné), jamais moins que le plus long mot de la colonne.
+  const mot = (t) => Math.max(0, ...(t || '').split(/\s+/).map((x) => x.length));
+  const poids = Array.from({ length: n }, (_, k) => Math.max(1, ...rangees.map((r) => Math.min(60, (r[k] || '').length))));
+  const minimums = Array.from({ length: n }, (_, k) => Math.min(2000, (Math.max(...rangees.map((r) => mot(r[k]))) + 2) * 115));
+  const reste = Math.max(0, LARGEUR_TEXTE - minimums.reduce((a, b) => a + b, 0));
+  const somme = poids.reduce((a, b) => a + b, 0);
+  const largeurs = poids.map((w, k) => minimums[k] + Math.round((w / somme) * reste));
+  largeurs[n - 1] += LARGEUR_TEXTE - largeurs.reduce((a, b) => a + b, 0);
+  return tableauXml(largeurs, rangees.map((r, k) => ({
+    entete: k === 0,
+    cellules: r.map((texte) => ({ fond: k === 0 ? GRIS_FONCE : null, paragraphes: [{ texte, gras: k === 0, centre: k === 0 }] })),
+  })));
+}
+
+/**
+ * Plan synthétique ou détaillé en tableau « intitulé | pages » : introduction, conclusion et parties en gras sur fond
+ * gris foncé, chapitres en gras sur fond gris clair, sections en retrait, paragraphes en italique, outils soulignés.
+ * Le nombre de pages tapé passe dans la seconde colonne (lu tel quel par les contrôles A12 et A13).
+ */
+export function tableauDuPlan(lignes) {
+  const pages = 1100;
+  return tableauXml([LARGEUR_TEXTE - pages, pages], lignes.map((l) => {
+    const fond = l.niveau <= 1 ? GRIS_FONCE : l.niveau === 2 ? GRIS_CLAIR : null;
+    const gras = l.niveau <= 2;
+    const retrait = [0, 0, 284, 567, 851][l.niveau];
+    const paragraphes = [{ texte: l.titre, gras, italique: l.niveau === 4, retrait }];
+    if (l.outil) paragraphes.push({ texte: l.outil, souligne: true, retrait: retrait + 284 });
+    return { cellules: [{ fond, paragraphes }, { fond, paragraphes: l.pages ? [{ texte: `${l.pages} ${Number(l.pages.replace(',', '.')) <= 1 ? 'page' : 'pages'}`, gras: l.niveau <= 1, centre: true }] : [] }] };
+  }));
 }
 
 /** Entrées des tables d'un document composé : { tdm: [{ niveau, texte, page }], sommaire, 'liste-annexes' }. */
@@ -273,6 +395,15 @@ export function ajouterStyles(xml) {
       copie = /<w:outlineLvl /.test(copie) ? copie.replace(/<w:outlineLvl w:val="\d"\/>/, '<w:outlineLvl w:val="9"/>') : copie.replace('<w:pPr>', '<w:pPr><w:outlineLvl w:val="9"/>');
       ajouts.push(copie);
     }
+  }
+  // Listes à tirets (le tiret tapé est gardé) et références de la bibliographie : retrait suspendu.
+  if (!existe('Listetirets')) {
+    ajouts.push('<w:style w:type="paragraph" w:customStyle="1" w:styleId="Listetirets"><w:name w:val="Liste tirets"/><w:basedOn w:val="Normal"/>'
+      + '<w:qFormat/><w:pPr><w:spacing w:after="60"/><w:ind w:left="567" w:hanging="283"/></w:pPr></w:style>');
+  }
+  if (!existe('Referencebiblio')) {
+    ajouts.push('<w:style w:type="paragraph" w:customStyle="1" w:styleId="Referencebiblio"><w:name w:val="Référence bibliographique"/><w:basedOn w:val="Normal"/>'
+      + '<w:qFormat/><w:pPr><w:spacing w:after="120"/><w:ind w:left="567" w:hanging="567"/><w:jc w:val="left"/></w:pPr></w:style>');
   }
   if (!existe('Soustitrenotice')) {
     ajouts.push('<w:style w:type="paragraph" w:customStyle="1" w:styleId="Soustitrenotice"><w:name w:val="Sous-titre notice"/><w:basedOn w:val="Normal"/>'

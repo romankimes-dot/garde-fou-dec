@@ -9,7 +9,7 @@ import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Typographie', R: 'Restes de travail' };
-const VERSION = '0.11.0';
+const VERSION = '0.12.0';
 
 const etat = {
   profil: 'notice', termes: [], ignores: {}, verifiees: {},
@@ -781,7 +781,11 @@ function ignorer(cle) {
 const NOMS_STYLES = {
   Titrehorsplan: 'Titre de pièce', Titrenotice: 'Section notice', 'Titrecatégorie': 'Catégorie', Titreannexe: 'Annexe',
   Heading1: 'Partie', Heading2: 'Chapitre', Heading3: 'Section', Heading4: '§', Normal: 'Texte', Soustitrenotice: 'Sous-titre notice',
+  Caption: 'Légende', Source: 'Source', Listetirets: 'Liste', Referencebiblio: 'Référence',
 };
+// Genre d'une ligne du plan de mise en forme, pour le décompte et la liste du volet.
+const genreForme = (l) => (l.omis ? null : l.champ ? 'Table (champ Word)' : l.tableau !== undefined ? 'Tableau'
+  : l.tableauTexte ? 'Tableau tapé (converti)' : l.planLigne ? 'Ligne de plan (tableau)' : NOMS_STYLES[l.style] || l.style);
 
 function installerMiseEnForme(champs) {
   document.body.classList.add(`profil-${etat.profil}`);
@@ -811,18 +815,21 @@ async function analyserForme() {
   etat.planForme = plan;
   const compte = {};
   for (const l of plan.lignes) {
-    const cle = l.omis ? null : l.champ ? 'Table (champ Word)' : l.tableau !== undefined ? 'Tableau' : NOMS_STYLES[l.style] + (l.gras ? ' (gras)' : '');
+    const g = genreForme(l);
+    const cle = g && g + (l.gras ? ' (gras)' : '');
     if (cle) compte[cle] = (compte[cle] || 0) + 1;
   }
-  const visibles = plan.lignes.filter((l) => !l.omis && (l.champ || l.tableau !== undefined || l.style !== 'Normal' || l.gras));
+  const visibles = plan.lignes.filter((l) => !l.omis && (l.style !== 'Normal' || l.gras));
   $('resultat-forme').replaceChildren(el('div', { class: 'carte-simple' },
     el('h2', { class: 'titre-section' }, 'Ce qui sera mis en forme'),
     el('div', { class: 'styles-forme' }, ...Object.entries(compte).map(([k, n]) => el('span', {}, `${k} : ${n}`))),
     ...plan.avertissements.map((a) => el('p', { class: 'bandeau' }, a)),
     el('p', { class: 'discret' }, `Page de garde et entrées de table du texte d'origine remplacées par celles du gabarit (${plan.lignes.filter((l) => l.omis).length} paragraphe(s)). Titres et tableaux ci-dessous ; le reste en texte courant.`),
     el('ul', { class: 'liste-forme' }, ...visibles.map((l) => el('li', {},
-      el('span', { class: 'style' }, l.champ ? 'Table' : l.tableau !== undefined ? 'Tableau' : NOMS_STYLES[l.style] || l.style),
-      el('span', { class: l.gras ? 'gras' : '' }, l.tableau !== undefined ? `Tableau ${l.tableau + 1} (repris tel quel)` : l.texte.slice(0, 140)))))));
+      el('span', { class: 'style' }, l.champ ? 'Table' : genreForme(l)),
+      el('span', { class: l.gras ? 'gras' : '' }, l.tableau !== undefined ? `Tableau ${l.tableau + 1} (repris tel quel)`
+        : l.tableauTexte ? `${l.tableauTexte.length} ligne(s) × ${l.tableauTexte[0].length} colonne(s), en-tête grisé : ${l.texte.slice(0, 100)}`
+          : l.planLigne ? `${l.planLigne.titre.slice(0, 110)}${l.planLigne.pages ? ` → ${l.planLigne.pages} p.` : ''}` : l.texte.slice(0, 140)))))));
   $('creer-forme').hidden = false;
 }
 

@@ -3,7 +3,7 @@
 // `niveau: 'avertissement'` sur une occurrence l'abaisse quand la règle est bloquante.
 
 import { normaliser, cleTitre, extrait, masquerUrl, nombre, pages } from './texte.js';
-import { estTexte, caracteres, lirePlan } from './structure.js';
+import { estTexte, caracteres, lirePlan, lignesDeZone } from './structure.js';
 
 const AV = 'avertissement';
 // `cibles` : paragraphes visés par une alerte regroupée.
@@ -139,7 +139,7 @@ function lignesDuPlan(doc, S, profil) {
     for (const nom of ['plan-det']) {
       const z = S.zone(nom);
       if (!z) continue;
-      for (const b of S.blocsDe(z.debut, z.fin)) if (!b.consigne && b.intitule && b.tableau === null) lignes.push(b);
+      lignes.push(...lignesDeZone(S, z));
     }
     return lignes;
   }
@@ -161,7 +161,7 @@ function A06(doc, S, { profil }) {
   }
   for (const nom of ['plan-synth', 'plan-det']) {
     const z = S.zone(nom);
-    if (z) for (const b of S.blocsDe(z.debut, z.fin)) if (!b.consigne && b.intitule && b.tableau === null) cibles.add(b);
+    if (z) for (const b of lignesDeZone(S, z)) cibles.add(b);
   }
   let sansNumero = 0;
   const decimaux = [];
@@ -342,6 +342,12 @@ function sectionsOuProches(S, p) {
   return r;
 }
 
+/** Ligne de tableau tapée en texte : au moins deux cellules séparées par « | ». */
+export const cellulesTapees = (t) => {
+  const c = t.split('|').map((x) => x.trim());
+  return c.length >= 2 && c.filter(Boolean).length >= 2 ? c : null;
+};
+
 function A10(doc, S, { p }) {
   const o = [];
   const s = sectionsOuProches(S, p);
@@ -350,7 +356,13 @@ function A10(doc, S, { p }) {
     const t = s[n];
     if (!t) { infos.push(`Section ${n} non trouvée : présence du ${objet} non contrôlée.`); continue; }
     if (t.approche) infos.push(`Section ${n} contrôlée sous le titre approchant « ${t.intitule.slice(0, 60)} ».`);
-    if (!S.blocsDe(t.i + 1, t.fin).some((b) => b.tableau !== null)) o.push(occ(t, `Section ${n} sans tableau : ${objet} attendu.`));
+    const blocs = S.blocsDe(t.i + 1, t.fin);
+    if (blocs.some((b) => b.tableau !== null)) continue;
+    // Tableau tapé en texte, cellules séparées par « | » (collage depuis un éditeur de texte) : à convertir.
+    const tape = blocs.filter((b) => b.tableau === null && cellulesTapees(b.texte));
+    if (tape.length >= 2) {
+      o.push(occ(tape[0], `Section ${n} : ${objet} tapé en texte (cellules séparées par « | »), pas en tableau Word.`, { cibles: tape.map((b) => b.i) }));
+    } else o.push(occ(t, `Section ${n} sans tableau : ${objet} attendu.`));
   }
   return { occurrences: o, infos };
 }
@@ -375,13 +387,13 @@ const lirePages = (t) => {
   const m = [...t.matchAll(PAGES_PLAN)];
   return m.length ? Number(m[m.length - 1][1].replace(',', '.')) : null;
 };
-const TYPE_LIGNE = /^(introduction|conclusion|partie|chapitre|section|§|paragraphe)\b/;
+const TYPE_LIGNE = /^(introduction|conclusion|partie|chapitre|section|§|paragraphe)(?![a-z])/;
 
 function A12(doc, S, { p }) {
   const z = S.zone('plan-det');
   if (!z) return { occurrences: [occ(null, 'Plan détaillé absent (titre « Plan détaillé » non trouvé).')], infos: [] };
   const o = [];
-  const lignes = S.blocsDe(z.debut, z.fin).filter((b) => !b.consigne && b.intitule && b.tableau === null);
+  const lignes = lignesDeZone(S, z);
   let intro = null; let conclusion = null; let total = 0;
   const valeurs = [];
   const sansPages = [];
@@ -449,8 +461,7 @@ function A13(doc, S) {
   const z = S.zone('plan-synth');
   if (!z) return { occurrences: [occ(null, 'Plan synthétique absent (titre « Plan synthétique » non trouvé).')], infos: [] };
   const o = [];
-  for (const b of S.blocsDe(z.debut, z.fin)) {
-    if (b.consigne || !b.intitule || b.tableau !== null) continue;
+  for (const b of lignesDeZone(S, z)) {
     const pl = lirePlan(b.intitule);
     if (!pl) continue;
     if (pl.niveau > 2) o.push(occ(b, 'Le plan synthétique ne fait apparaître que les parties et chapitres.'));
@@ -1041,6 +1052,8 @@ function B10(doc, S) {
   const sansNumero = [];
   const sansSource = [];
   for (const cellules of tableaux.values()) {
+    // Plan synthétique ou détaillé présenté en tableau « Intitulé | Pages » : la pièce porte déjà son titre.
+    if (S.dans('plan-synth', cellules[0].i) || S.dans('plan-det', cellules[0].i)) continue;
     const avant = voisin(cellules[0].i, -1);
     const apres = voisin(cellules[cellules.length - 1].i, 1);
     const titre = [avant, apres].find((b) => legende(b)) || (titreCourt(avant) ? avant : null);

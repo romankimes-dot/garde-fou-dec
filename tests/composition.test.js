@@ -17,7 +17,10 @@ test('notice fictive → document au gabarit : garde remplie, sections, tableaux
   const garde = sortie.blocs.filter((b) => b.garde).map((b) => b.texte).join(' | ');
   for (const t of ['Sujet fictif', 'Prénom NOM', '75001 Paris', 'novembre 2026', "Demande d'agrément du sujet de mémoire"]) assert.ok(garde.includes(t), `garde : ${t}`);
   assert.ok(!sortie.blocs.some((b) => b.consigne), 'aucune consigne du gabarit');
-  assert.equal(sortie.tableaux, source.blocs.filter((b) => b.tableau !== null && !b.garde).reduce((s, b) => s.add(b.tableau), new Set()).size);
+  // Tableaux repris, plus un tableau par plan (synthétique, détaillé) et par tableau tapé en texte.
+  const groupesPlan = plan.lignes.filter((l, k, t) => !l.omis && l.planLigne && !(t.slice(0, k).filter((x) => !x.omis).pop() || {}).planLigne).length;
+  const tapes = plan.lignes.filter((l) => l.tableauTexte).length;
+  assert.equal(sortie.tableaux, source.blocs.filter((b) => b.tableau !== null && !b.garde).reduce((s, b) => s.add(b.tableau), new Set()).size + groupesPlan + tapes);
   const styles = new Set(sortie.blocs.map((b) => b.style));
   for (const st of ['titre hors plan', 'titre notice', 'titre catégorie']) assert.ok(styles.has(st), `style ${st}`);
   // Table des matières pré-remplie (sections et sous-titres), sans sa propre entrée ; sous-titres stylés, sans « 1.1 ».
@@ -47,4 +50,40 @@ test('mémoire en texte simple : « Partie 1 – … » devient un titre numéro
   assert.ok(garde.includes('SUJET FICTIF') && garde.includes("Diplôme d'expertise comptable – Session d'automne (novembre) 2027") && garde.includes('MÉMOIRE'));
   const titres = sortie.blocs.filter((b) => /^heading [1-4]$/.test(b.style)).map((b) => b.label.trim());
   assert.deepEqual(titres, ['Partie 1 –', 'Chapitre 1 –', 'Section 1 –', '§ 1 –']);
+});
+
+test('notice collée en texte brut : tableaux « | », plans en tableau, légendes, sources, listes, bibliographie', async () => {
+  const lignes = ["Demande d'agrément du sujet de mémoire présentée en vue de l'obtention du diplôme d'expertise comptable", 'Sujet', 'Prénom NOM',
+    'Table des matières', 'Notice explicative', '1. Intérêt du sujet et problématique', 'Problématique : Comment faire ?',
+    '- premier point de la liste', '- second point de la liste',
+    "3. Différenciation avec les autres mémoires d'expertise comptable", 'Tableau 1 – Mémoires proches', 'Mémoire | Ce qu\'il traite | Différence',
+    'Auteur 2010 | Objet | Écart', 'Auteur 2015 | Objet | Écart', 'Source : réalisé par l\'auteur.',
+    '5. Apports du mémoire à la profession', 'Tableau 2 – Outils', "N° d'ordre | Outil | Nature | Objectif | Partie, chapitre, section",
+    '1 | Outil un | Classeur | But | P1 C1 S1', 'Source : réalisé par l\'auteur.',
+    'Plan synthétique', 'Introduction (4 pages)', 'Partie 1 – Le constat (48 pages)', 'Chapitre 1 – Les faits (24 pages)', 'Chapitre 2 – Les causes (24 pages)',
+    'Partie 2 – La réponse (45 pages)', 'Chapitre 1 – La méthode (22,5 pages)', 'Chapitre 2 – La mise en œuvre (22,5 pages)', 'Conclusion (3 pages)',
+    'Plan détaillé', 'Introduction (4 pages)', 'Partie 1 – Le constat (48 pages)', 'Chapitre 1 – Les faits (24 pages)',
+    'Section 1 – Ce qui est reçu (12 pages)', '§ 1 – Les fichiers (6 pages) – outil n° 1 : table de passage', '§ 2 – Les délais (6 pages)',
+    'Section 2 – Ce qui est fait (12 pages)', '§ 1 – Le traitement (6 pages)', '§ 2 – La livraison (6 pages)', 'Conclusion (3 pages)',
+    'Bibliographie', 'Référence réglementaire', 'NOM Prénom, (2020), Titre, Éditeur, 100 pages.'];
+  const doc = { source: 'word', blocs: lignes.map((texte, i) => ({ i, texte, label: '', titre: false, niveau: 0, role: null, style: null, tableau: null, liens: [], image: false, notes: 0, consigne: false, sautAvant: false, garde: false })) };
+  const plan = planifier(doc, await regles(), 'notice');
+  const st = (debut) => (plan.lignes.find((l) => l.texte.startsWith(debut)) || {}).style;
+  assert.equal(st('Tableau 1'), 'Caption');
+  assert.equal(st('Source'), 'Source');
+  assert.equal(st('- premier'), 'Listetirets');
+  assert.equal(st('NOM Prénom'), 'Referencebiblio');
+  assert.equal(plan.lignes.filter((l) => l.tableauTexte).map((l) => l.tableauTexte.length).join(','), '3,2');
+  const pl = plan.lignes.filter((l) => l.planLigne).map((l) => l.planLigne);
+  assert.deepEqual(pl.find((x) => x.outil), { niveau: 4, titre: '§ 1 – Les fichiers', pages: '6', outil: 'outil n° 1 : table de passage' });
+  const octets = await composer(await gabarit('gabarit-demande-agrement.docx'), plan, 'notice',
+    { intitule: 'Sujet', auteur: 'Prénom NOM', adresse: '75001 Paris', date: 'novembre 2026', regles: await regles() });
+  const sortie = await lireDocx(octets);
+  assert.equal(sortie.tableaux, 4);
+  assert.ok(sortie.blocs.some((b) => b.tableau !== null && b.texte === '22,5 pages'));
+  // Relu par le moteur : tableaux présents (A10), plans lus dans leurs tableaux (A12, A13), aucun tableau de plan sans titre (B10).
+  const r = await lancer(sortie, { profil: 'notice' });
+  for (const id of ['A10', 'A13']) assert.ok(!r.ids.has(id), r.lignes.filter((l) => l.startsWith(id)).join('\n'));
+  assert.ok(!r.lignes.some((l) => /^A12 .*(absent|sans nombre)/.test(l)), r.lignes.filter((l) => l.startsWith('A12')).join('\n'));
+  assert.ok(!r.lignes.some((l) => /^B10 .*sans titre/.test(l)), r.lignes.filter((l) => l.startsWith('B10')).join('\n'));
 });

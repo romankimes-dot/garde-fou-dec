@@ -25,9 +25,15 @@ Accueil, Compléments, « Plus de compléments », « Mes compléments », « Ch
   | Partie, Chapitre, Section, § du mémoire | Titre 1 à 4, numéros automatiques « Partie 1 – » |
   | Catégorie de la bibliographie | Titre catégorie |
   | Annexe | Titre annexe, numéro automatique « Annexe 1 – » |
+  | Plan synthétique et plan détaillé de la notice (lignes « Partie n – … (n pages) ») | Tableau « intitulé / pages » : introduction, conclusion et parties en gras sur gris foncé, chapitres en gras sur gris clair, sections en retrait, § en italique, outil souligné sous son § ; le nombre de pages tapé passe dans la colonne de droite |
+  | Tableau tapé en texte (cellules séparées par « \| ») | Vrai tableau Word, première ligne en en-tête grisé répété, colonnes au prorata du texte |
+  | Légende « Tableau n – … », « Figure n – … » | Légende (liée au tableau) |
+  | « Source : … », « Réalisé par l'auteur » | Source (juste sous le tableau, liée à sa dernière ligne) |
+  | Ligne commençant par un tiret ou une puce | Liste tirets (retrait suspendu, tiret conservé) |
+  | Référence de la bibliographie | Référence bibliographique (retrait suspendu) |
   | Texte | Normal (taille 12, interligne 1,5) |
 
-  Tables pré-remplies (entrées et pages estimées) ; dans le nouveau document, Garde-fou propose « Corriger : mise à jour des tables » pour les pages exactes. Liens hypertextes et images non repris (signalés avant création). Gabarits vierges téléchargeables depuis le même onglet.
+  Tables pré-remplies (entrées et pages estimées, annexes comprises) ; dans le nouveau document, Garde-fou propose « Corriger : mise à jour des tables » pour les pages exactes. Liens hypertextes et images non repris (signalés avant création). Gabarits vierges téléchargeables depuis le même onglet.
 - **Exigences de la Note** : toutes les exigences, contrôlées ou à vérifier soi-même, dépôt compris, et les codes du sujet. Chaque alerte est rattachée à une seule exigence ; une exigence à vérifier soi-même se coche « Marquer vérifié » (mémorisé pour ce document, dans ce navigateur).
 - **Copier les alertes** : règles et messages, passages masqués, pour le calibrage.
 - **Réglages** : termes du cabinet, des clients et des personnes (conservés dans ce navigateur seulement) ; occurrences ignorées ; diagnostic de lecture.
@@ -40,7 +46,7 @@ Le PDF exporté reste la référence pour la pagination exacte (`scripts/mise-en
 | --- | --- |
 | A01 à A05 | Volumes (notice ≤ 10 p., corps 95 à 110 p., annexes ≤ 100 p., note de synthèse 2 à 3 p.) ; équilibre (préférence) |
 | A06 à A08 | Nomenclature Partie/Chapitre/Section/Paragraphe (I, 1.1, 1.1.1, A, a) proscrits) ; 2 ou 3 parties de 2 ou 3 chapitres, numérotation reprise ou continue sans mélange ; niveau isolé |
-| A09 à A13 | Notice : sept sections dans l'ordre (titre approchant proposé), tableaux des sections 3 et 5, problématique en une question, plan détaillé (paragraphes, pages à chaque niveau, outils), plan synthétique |
+| A09 à A13 | Notice : sept sections dans l'ordre (titre approchant proposé), tableaux des sections 3 et 5 (tableau tapé en « \| » signalé), problématique en une question, plan détaillé (paragraphes, pages à chaque niveau, outils), plan synthétique ; plans lus en paragraphes ou en tableau « intitulé / pages » |
 | A14 à A17 | Pièces et ordre ; pages de garde (notice et mémoire) ; termes du cabinet ; annexe n° 1 de la charte IA (tableau des usages, exemple laissé, date, nom, signature) |
 | A18 | Bibliographie : six catégories dans l'ordre, ordre alphabétique, présentation de chaque référence selon les exemples de la Note |
 | A19, A20 | Mise en page (taille 12, interligne 1,5, marges, page de garde non numérotée, numéros en bas à droite) ; notes de bas de page |

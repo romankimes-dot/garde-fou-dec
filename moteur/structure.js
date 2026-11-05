@@ -78,8 +78,9 @@ export function analyserStructure(doc, regles) {
     const section = motifsSections.findIndex((m) => m.test(cle));
     const categorie = motifsCategories.findIndex((m) => m.test(cle));
     const annexe = ANNEXE.test(normaliser(b.intitule)) && !zone;
-    // Dans un plan ou une table, une ligne sans style de titre n'est un titre que si elle ouvre une autre pièce.
-    const court = ressembleTitre(b) && (!LISTES.has(zoneCourante) || (zone && !LISTES.has(zone) && zone !== zoneCourante));
+    // Dans un plan ou une table, une ligne sans style de titre n'est un titre que si elle ouvre une autre pièce
+    // (y compris le plan détaillé qui suit le plan synthétique).
+    const court = ressembleTitre(b) && (!LISTES.has(zoneCourante) || (zone && zone !== zoneCourante));
 
     if (b.titre || court) {
       if (zone) { b.titre = true; b.zone = zone; b.role = b.role === 'section-notice' ? b.role : 'zone'; b.niveau = 1; }
@@ -167,4 +168,35 @@ export function estTexte(b) {
 /** Caractères espaces compris d'un ensemble de blocs (consignes exclues). */
 export function caracteres(blocs) {
   return blocs.reduce((n, b) => n + (b.consigne ? 0 : b.intitule.length), 0);
+}
+
+const PAGES_CELLULE = /^(\d+(?:[,.]\d+)?)\s*(?:p\.?|pages?)?$/i;
+const LIGNE_DE_PLAN = /^(introduction|conclusion|partie|chapitre|section|§|paragraphe)(?![a-z])/;
+
+/**
+ * Lignes d'un plan de la notice (zone « plan-synth » ou « plan-det »), qu'il soit en paragraphes ou en tableau
+ * « Intitulé | Pages » : chaque paragraphe de la première colonne est une ligne ; le nombre de la colonne des pages
+ * est rattaché à la première ligne du plan de la rangée, sous la forme « (n pages) » lue par les contrôles.
+ */
+export function lignesDeZone(S, z) {
+  const lignes = [];
+  const rangees = new Map();
+  for (const b of S.blocsDe(z.debut, z.fin)) {
+    if (b.consigne || !b.intitule) continue;
+    if (b.tableau === null) { lignes.push(b); continue; }
+    const cle = `${b.tableau}:${b.ligne}`;
+    if (!rangees.has(cle)) { rangees.set(cle, { premiere: [], pages: null }); lignes.push(rangees.get(cle)); }
+    const r = rangees.get(cle);
+    if (b.colonne === 0) r.premiere.push(b);
+    else if (PAGES_CELLULE.test(b.intitule.trim())) r.pages = PAGES_CELLULE.exec(b.intitule.trim())[1];
+  }
+  return lignes.flatMap((x) => {
+    if (!x.premiere) return [x];
+    let pose = x.pages === null;
+    return x.premiere.map((b) => {
+      if (pose || !LIGNE_DE_PLAN.test(normaliser(b.intitule).replace(/^[•▪◦-]\s*/, ''))) return b;
+      pose = true;
+      return Object.assign(Object.create(b), { intitule: `${b.intitule} (${x.pages} pages)` });
+    });
+  });
 }
