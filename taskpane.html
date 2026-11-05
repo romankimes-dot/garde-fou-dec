@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Garde-fou DEC</title>
+  <!-- Bibliothèque officielle des compléments Office (obligatoire, servie par Microsoft). -->
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <link rel="stylesheet" href="taskpane.css">
+</head>
+<body>
+  <header class="entete">
+    <h1 class="invisible">Garde-fou DEC</h1>
+    <p class="discret">Contrôles de forme, sans IA. Le texte ne quitte pas Word.</p>
+  </header>
+
+  <section class="reglages-rapides" aria-label="Profil et mode">
+    <fieldset class="segment">
+      <legend>Document</legend>
+      <label><input type="radio" name="profil" value="notice" checked><span>Notice</span></label>
+      <label><input type="radio" name="profil" value="memoire"><span>Mémoire</span></label>
+    </fieldset>
+    <fieldset class="segment">
+      <legend>Mode</legend>
+      <label><input type="radio" name="mode" value="redaction" checked><span>Rédaction</span></label>
+      <label><input type="radio" name="mode" value="depot"><span>Dépôt</span></label>
+    </fieldset>
+  </section>
+
+  <section class="actions">
+    <button id="controler-ouvert" class="principal" type="button">Contrôler ce document</button>
+    <label class="secondaire" for="fichier">Contrôler un fichier .docx…</label>
+    <input id="fichier" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+    <p class="discret aide">Le .docx (Fichier, Enregistrer sous, Télécharger une copie) permet en plus le contrôle de la mise en page : marges, taille, interligne, numéro de page.</p>
+  </section>
+
+  <p id="statut" class="statut" role="status" aria-live="polite"></p>
+
+  <section id="synthese" class="synthese" hidden>
+    <div class="feu" id="feu"><span class="pastille" aria-hidden="true"></span><strong id="feu-texte"></strong></div>
+    <p id="comptes" class="discret"></p>
+  </section>
+
+  <section id="infos" class="infos" hidden></section>
+  <section id="resultats"></section>
+
+  <details id="pagination-bloc" class="panneau" hidden>
+    <summary>Pagination estimée</summary>
+    <p class="discret">2 400 caractères par page, saut de page à chaque titre de niveau 1. C'est un minimum : tableaux et figures ajoutent des pages. Le PDF exporté fait foi (scripts/mise-en-forme/controle.py).</p>
+    <table class="pagination"><thead><tr><th>Titre</th><th>Page</th><th>Pages</th></tr></thead><tbody id="pagination"></tbody></table>
+  </details>
+
+  <details class="panneau" id="reglages">
+    <summary>Réglages</summary>
+    <label for="termes" class="titre-champ">Termes du cabinet à ne jamais voir apparaître</label>
+    <p class="discret">Nom, ville, logiciels internes… un terme par ligne. Cette liste reste dans ce navigateur ; elle n'est ni écrite dans le document, ni commitée, ni transmise.</p>
+    <textarea id="termes" rows="5" spellcheck="false"></textarea>
+    <div class="ligne-boutons">
+      <button id="enregistrer-termes" type="button">Enregistrer</button>
+      <button id="oublier-ignores" type="button">Rétablir les occurrences ignorées</button>
+      <button id="copier-diagnostic" type="button">Diagnostic de lecture</button>
+    </div>
+    <p class="discret">Le diagnostic décrit la structure lue (nombre de paragraphes, titres, tableaux) sans aucun texte du document.</p>
+    <pre id="diagnostic" class="diagnostic" hidden></pre>
+  </details>
+
+  <footer class="pied discret" id="pied"></footer>
+  <script type="module" src="taskpane.js"></script>
+</body>
+</html>
