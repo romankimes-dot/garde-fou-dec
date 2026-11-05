@@ -308,20 +308,40 @@ function A09(doc, S, { p }) {
   return { occurrences: o, infos: [] };
 }
 
-function A10(doc, S) {
-  const o = [];
+/**
+ * Sections de la notice, complétées par les titres approchants pour celles qui manquent (contrôles de contenu :
+ * un tableau, une question). `approche` est vrai pour une section retrouvée par un titre approchant.
+ */
+function sectionsOuProches(S, p) {
   const s = sectionsNotice(S);
+  const dansNotice = S.titres.filter((t) => t.role !== 'zone' && t.role !== 'section-notice'
+    && (!S.notice || (t.i >= S.notice.debut && t.i < S.notice.fin)))
+    .sort((a, b) => a.niveau - b.niveau || a.i - b.i);
+  const pris = new Set();
+  const r = [];
+  p.notice_sections.forEach((def, k) => {
+    if (s[k + 1]) { r[k + 1] = s[k + 1]; return; }
+    const t = titreProche(dansNotice, def.proches, pris);
+    if (t) { pris.add(t.i); r[k + 1] = Object.assign(Object.create(t), { approche: true }); }
+  });
+  return r;
+}
+
+function A10(doc, S, { p }) {
+  const o = [];
+  const s = sectionsOuProches(S, p);
   const infos = [];
   for (const [n, objet] of [[3, 'tableau de différenciation avec les mémoires les plus proches'], [5, 'tableau des outils (numéro d\'ordre dans le plan, nom, nature, objectifs)']]) {
     const t = s[n];
     if (!t) { infos.push(`Section ${n} non trouvée : présence du ${objet} non contrôlée.`); continue; }
+    if (t.approche) infos.push(`Section ${n} contrôlée sous le titre approchant « ${t.intitule.slice(0, 60)} ».`);
     if (!S.blocsDe(t.i + 1, t.fin).some((b) => b.tableau !== null)) o.push(occ(t, `Section ${n} sans tableau : ${objet} attendu.`));
   }
   return { occurrences: o, infos };
 }
 
-function A11(doc, S) {
-  const t = sectionsNotice(S)[1];
+function A11(doc, S, { p }) {
+  const t = sectionsOuProches(S, p)[1];
   if (!t) return { occurrences: [], infos: ['Section 1 non trouvée : problématique (question unique) non contrôlée.'] };
   const questions = [];
   for (const b of S.blocsDe(t.i + 1, t.fin)) {
@@ -773,7 +793,7 @@ function A21(doc, S, { p, profil }) {
   if (profil === 'notice') {
     const z = S.zone('changements');
     if (!z) {
-      infos.push('Après une décision 4.2 ou 5.2 seulement : tableau des changements principaux (deux pages au plus, entre la page de garde et la notice) et modifications écrites en rouge (p. 13).');
+      infos.push('Non applicable (aucun tableau des changements) : après une décision 4.2 ou 5.2 seulement, tableau des changements principaux (deux pages au plus, entre la page de garde et la notice) et modifications écrites en rouge (p. 13).');
     } else {
       const notice = S.zone('notice');
       if (notice && z.titre.i > notice.titre.i) o.push(occ(z.titre, 'Le tableau des changements se place entre la page de garde et la notice explicative.'));
@@ -787,7 +807,7 @@ function A21(doc, S, { p, profil }) {
   } else {
     const z = S.zone('liminaire');
     if (!z) {
-      infos.push('Deuxième présentation ou plus seulement : note liminaire en tableau, en début de mémoire, explicitant les modifications (p. 15).');
+      infos.push('Non applicable (aucune note liminaire) : pour une deuxième présentation ou plus seulement, note liminaire en tableau, en début de mémoire, explicitant les modifications (p. 15).');
     } else {
       const debut = Math.min(...['sommaire', 'intro'].map((nom) => S.zone(nom)?.titre.i ?? Infinity));
       if (z.titre.i > debut) o.push(occ(z.titre, 'La note liminaire se place en début de mémoire.'));
@@ -1181,8 +1201,18 @@ function F08(doc, S) {
   return { occurrences: o, infos: [] };
 }
 
+function F09(doc, S) {
+  const o = [];
+  for (const b of blocsTypo(doc, S)) {
+    const t = masquerUrl(b.texte);
+    const m = [...t.matchAll(/(?<=\p{L})'(?=\p{L})/gu)];
+    if (m.length) o.push(occ(b, `${m.length} apostrophe(s) droite(s) ' : utiliser ’.`, { pos: m[0].index, corrections: [{ type: 'apostrophes', i: b.i }] }));
+  }
+  return { occurrences: o, infos: [] };
+}
+
 export const CONTROLES = {
   A01, A02, A03, A04, A05, A06, A07, A08, A09, A10, A11, A12, A13, A14, A15, A16, A17, A18, A19, A20, A21,
   B01, B02, B03, B04, B05, B06, B07, B08, B09, B10,
-  F01, F02, F03, F04, F05, F06, F07, F08,
+  F01, F02, F03, F04, F05, F06, F07, F08, F09,
 };

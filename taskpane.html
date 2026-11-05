@@ -6,20 +6,20 @@
   <title>Garde-fou DEC</title>
   <!-- Bibliothèque officielle des compléments Office (obligatoire, servie par Microsoft). -->
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-  <link rel="stylesheet" href="taskpane.css?v=0.7.0">
+  <link rel="stylesheet" href="taskpane.css?v=0.8.0">
   <!-- Tous les modules à la même version (voir outils/version.py). -->
   <script type="importmap">
   {
     "imports": {
-      "./sources/docx.js": "./sources/docx.js?v=0.7.0",
-      "./sources/office.js": "./sources/office.js?v=0.7.0",
-      "./sources/correction.js": "./sources/correction.js?v=0.7.0",
-      "./sources/zip.js": "./sources/zip.js?v=0.7.0",
-      "./sources/xml.js": "./sources/xml.js?v=0.7.0",
-      "./moteur/moteur.js": "./moteur/moteur.js?v=0.7.0",
-      "./moteur/controles.js": "./moteur/controles.js?v=0.7.0",
-      "./moteur/structure.js": "./moteur/structure.js?v=0.7.0",
-      "./moteur/texte.js": "./moteur/texte.js?v=0.7.0"
+      "./sources/docx.js": "./sources/docx.js?v=0.8.0",
+      "./sources/office.js": "./sources/office.js?v=0.8.0",
+      "./sources/correction.js": "./sources/correction.js?v=0.8.0",
+      "./sources/zip.js": "./sources/zip.js?v=0.8.0",
+      "./sources/xml.js": "./sources/xml.js?v=0.8.0",
+      "./moteur/moteur.js": "./moteur/moteur.js?v=0.8.0",
+      "./moteur/controles.js": "./moteur/controles.js?v=0.8.0",
+      "./moteur/structure.js": "./moteur/structure.js?v=0.8.0",
+      "./moteur/texte.js": "./moteur/texte.js?v=0.8.0"
     }
   }
   </script>
@@ -75,6 +75,10 @@
         <div id="bandeau-profil"></div>
         <button type="button" id="rappel-restes" class="rappel-restes" data-filtre="restes" hidden></button>
       </section>
+      <div id="perime" class="perime" role="alert" hidden>
+        <span>Le document a changé depuis ce contrôle (modification, Ctrl+Z…) : les alertes ne sont plus à jour.</span>
+        <button type="button" id="relancer" class="principal petit">Relancer le contrôle</button>
+      </div>
       <div id="retour" class="retour" role="status" hidden></div>
 
       <div id="filtres" class="filtres" hidden role="group" aria-label="Filtrer les alertes">
@@ -112,8 +116,8 @@
       <ul id="infos" class="mesures"></ul>
       <section id="pagination-bloc" class="carte-simple" hidden>
         <h2 class="titre-section">Pagination estimée</h2>
-        <p class="discret">2 400 caractères par page, saut de page à chaque titre de niveau 1. C'est un minimum : tableaux et figures ajoutent des pages ; le PDF exporté fait foi.</p>
-        <table class="pagination"><thead><tr><th>Titre</th><th>Page</th><th>Pages</th></tr></thead><tbody id="pagination"></tbody></table>
+        <p class="discret" id="pagination-total"></p>
+        <table class="pagination"><thead><tr><th>Titre</th><th title="Page à l'affichage (estimation)">Page</th><th title="Mesure de la Note : 2 400 caractères par page">2 400 car.</th></tr></thead><tbody id="pagination"></tbody></table>
       </section>
     </section>
 
@@ -139,6 +143,6 @@
   </main>
 
   <footer class="pied" id="pied"></footer>
-  <script type="module" src="taskpane.js?v=0.7.0"></script>
+  <script type="module" src="taskpane.js?v=0.8.0"></script>
 </body>
 </html>
