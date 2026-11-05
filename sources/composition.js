@@ -95,7 +95,9 @@ export function planifier(doc, regles, profil) {
     // Annexe : numéro automatique du gabarit (« Annexe n – »), le numéro tapé ou hérité est retiré.
     if (b.titre && b.role === 'annexe') { lignes.push({ i: b.i, texte: texte.replace(/^annexe\s*(?:n°\s*)?\d+\s*[-–—:.]?\s*/i, ''), style: 'Titreannexe' }); return; }
     // Texte simple du mémoire : « Partie 1 – … », « Chapitre 2 – … » reconnus à leur début.
-    const pl = !dansPlan && texte.length <= 160 && !/[.;,]$/.test(texte) ? lirePlan(texte) : null;
+    // Ligne « Partie n – … », « Chapitre n – … » : un titre quelle que soit sa longueur (décision du 05/11/2026 ;
+    // les intitulés longs sont signalés par B03, pas rétrogradés en texte).
+    const pl = !dansPlan && !/[.;,]$/.test(texte) ? lirePlan(texte) : null;
     if (profil === 'memoire' && !dansPlan && (pl || (b.titre && b.role === 'plan'))) {
       const niveau = pl ? pl.niveau : b.niveau;
       // Titres du mémoire : numéros automatiques du gabarit (« Partie n – »), le numéro tapé est retiré.

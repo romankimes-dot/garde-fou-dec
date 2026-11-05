@@ -52,7 +52,9 @@ function capitales(t) {
 
 function ressembleTitre(b) {
   const t = b.texte.trim();
-  return t.length > 0 && t.length <= 160 && !/[.;,]$/.test(t) && b.tableau === null && !ENTREE_DE_TABLE.test(t);
+  // Une ligne de plan (« Partie n – … ») est un titre quelle que soit sa longueur ; les autres titres repérés au texte
+  // seul restent bornés à 160 caractères.
+  return t.length > 0 && (t.length <= 160 || PLAN.test(normaliser(t))) && !/[.;,]$/.test(t) && b.tableau === null && !ENTREE_DE_TABLE.test(t);
 }
 // Entrée de sommaire ou de table : se termine par un numéro de page après une tabulation ou des points.
 const ENTREE_DE_TABLE = /(\t|\.{3,}|…)\s*\d+\s*$/;
