@@ -9,7 +9,7 @@ import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Typographie', R: 'Restes de travail' };
-const VERSION = '0.10.0';
+const VERSION = '0.11.0';
 
 const etat = {
   profil: 'notice', termes: [], ignores: {}, verifiees: {},
@@ -471,6 +471,14 @@ const enWord = () => etat.doc?.source === 'word' && etat.dansWord;
 /** Aperçu « avant → après » de chaque paragraphe, puis application sur confirmation. */
 function apercuCorrections(liste, conteneur) {
   const p = etat.regles.parametres;
+  if (liste.every((c) => c.type === 'tables')) {
+    conteneur.replaceChildren(el('div', { class: 'apercu' },
+      el('p', {}, 'Word recalcule le sommaire, la table des matières et la liste des annexes (entrées et numéros de page). Le texte n\'est pas modifié.'),
+      el('span', { class: 'gestes' },
+        el('button', { type: 'button', class: 'principal petit', onclick: () => appliquer(liste.slice(0, 1)) }, 'Mettre à jour'),
+        el('button', { type: 'button', class: 'geste', onclick: () => conteneur.replaceChildren() }, 'Annuler'))));
+    return;
+  }
   if (liste.every((c) => c.type === 'style-normal')) {
     conteneur.replaceChildren(el('div', { class: 'apercu' },
       el('p', {}, `Le style Normal passera en taille ${p.taille_texte} : tous les paragraphes sans mise en forme directe changent d'un coup.`),
@@ -510,7 +518,7 @@ function blocAuto(x) {
   const apercuZone = el('div', {});
   const boutons = [...parType].map(([type, liste]) => {
     const nb = new Set(liste.map((c) => c.i)).size;
-    return boutonCorriger(liste, `Corriger : ${LIBELLES[type]}${type === 'style-normal' ? '' : ` (${nb} paragraphe${nb > 1 ? 's' : ''})`}`, apercuZone);
+    return boutonCorriger(liste, `Corriger : ${LIBELLES[type]}${type === 'style-normal' || type === 'tables' ? '' : ` (${nb} paragraphe${nb > 1 ? 's' : ''})`}`, apercuZone);
   });
   return el('div', { class: 'bloc-auto' }, ...boutons, apercuZone);
 }
@@ -545,7 +553,7 @@ async function appliquer(liste) {
     if (r.erreurs?.length) details.push(`refusé par Word : ${r.erreurs.join(' ; ')}`);
     if (r.journal?.length) etat.journal = r.journal;
     etat.retour = r.corrections || (r.dejaCorriges && !r.decales)
-      ? { texte: !r.corrections ? 'Déjà corrigé : rien à changer.' : (r.paragraphes ? `${r.corrections} remplacement(s) dans ${r.paragraphes} paragraphe(s), mise en forme conservée.` : `Taille ${etat.regles.parametres.taille_texte} appliquée (${r.corrections} modification(s) de style).`), details: details.join(' · '), annulable: !!r.journal?.length, lieux: r.lieux }
+      ? { texte: !r.corrections ? 'Déjà corrigé : rien à changer.' : (r.tables ? `${r.tables} table(s) mise(s) à jour par Word.` : r.paragraphes ? `${r.corrections} remplacement(s) dans ${r.paragraphes} paragraphe(s), mise en forme conservée.` : `Taille ${etat.regles.parametres.taille_texte} appliquée (${r.corrections} modification(s) de style).`), details: details.join(' · '), annulable: !!r.journal?.length, lieux: r.lieux }
       : { erreur: true, texte: 'Aucune correction appliquée.', details: `${details.join(' · ') || 'rien trouvé'}. Relancer le contrôle ; si le problème persiste, copier le diagnostic (Réglages).`, lieux: r.lieux };
     etat.dernierRapport = { liste: liste.length, types: [...new Set(liste.map((c) => c.type))], ...r, journal: r.journal?.length, lieux: r.lieux?.map((l) => `${l.i + 1} ${l.motif}`) };
     await lireOuvert();
@@ -772,7 +780,7 @@ function ignorer(cle) {
 
 const NOMS_STYLES = {
   Titrehorsplan: 'Titre de pièce', Titrenotice: 'Section notice', 'Titrecatégorie': 'Catégorie', Titreannexe: 'Annexe',
-  Heading1: 'Partie', Heading2: 'Chapitre', Heading3: 'Section', Heading4: '§', Normal: 'Texte',
+  Heading1: 'Partie', Heading2: 'Chapitre', Heading3: 'Section', Heading4: '§', Normal: 'Texte', Soustitrenotice: 'Sous-titre notice',
 };
 
 function installerMiseEnForme(champs) {
@@ -833,7 +841,7 @@ async function creerForme() {
   try {
     const nomGabarit = etat.profil === 'memoire' ? 'gabarit-memoire.docx' : 'gabarit-demande-agrement.docx';
     const gabarit = await fetch(`gabarits/${nomGabarit}?v=${VERSION}`).then((r) => { if (!r.ok) throw new Error(`gabarit introuvable (${r.status})`); return r.arrayBuffer(); });
-    const octets = await composer(gabarit, etat.planForme, etat.profil, { ...champs, tableaux: etat.doc.tableauxXml || [] });
+    const octets = await composer(gabarit, etat.planForme, etat.profil, { ...champs, tableaux: etat.doc.tableauxXml || [], regles: etat.regles });
     const nom = etat.profil === 'memoire' ? 'memoire-mis-en-forme.docx' : 'demande-agrement-mise-en-forme.docx';
     let ouvert = false;
     if (etat.dansWord) {

@@ -4,6 +4,8 @@
 
 import { lireZip, ecrireZip } from './zip.js';
 import { analyserStructure, lirePlan } from '../moteur/structure.js';
+import { lireDocx } from './docx.js';
+import { pagesDesTitres } from '../moteur/moteur.js';
 
 const ZONES_CHAMP = new Set(['tdm', 'sommaire', 'liste-annexes']); // tables produites par Word (champs)
 const PREFIXE_PLAN = /^(partie|chapitre|section|§|paragraphe)\s*\d+(?:\.\d+)*\s*[-–—:.]?\s*/i;
@@ -60,8 +62,10 @@ export function planifier(doc, regles, profil) {
     const suivant = copie.blocs.slice(k + 1).find((x) => x.texte.trim());
     const sousTitre = !dansPlan && S.notice && b.i >= S.notice.debut && b.i < S.notice.fin
       && (b.titre || (texte.length <= 120 && !/[.:;,]$/.test(texte) && suivant && suivant.texte.length > texte.length * 1.5 && !/^[•▪◦\-–]/.test(texte)));
-    // Sous-titre numéroté « 1.1 » : numéro retiré (découpage proscrit par la Note, p. 14), comme le propose A06.
-    lignes.push({ i: b.i, texte: sousTitre ? texte.replace(/^\d+(?:\.\d+)+\.?\s+/, '') : texte, style: 'Normal', gras: !!sousTitre });
+    // Sous-titre de la notice : style « Sous-titre notice » (niveau 3, dans la table des matières) ; numéro « 1.1 »
+    // retiré (découpage proscrit par la Note, p. 14), comme le propose A06.
+    if (sousTitre) { lignes.push({ i: b.i, texte: texte.replace(/^\d+(?:\.\d+)+\.?\s+/, ''), style: 'Soustitrenotice' }); return; }
+    lignes.push({ i: b.i, texte, style: 'Normal' });
   });
   const liens = copie.blocs.filter((b) => !b.garde && b.tableau === null && (b.liens || []).length).length;
   if (liens) avertissements.push(`${liens} paragraphe(s) avec lien hypertexte : le texte est repris, pas le lien (renvois aux annexes, URL) ; à recréer (Insertion, Lien).`);
@@ -134,7 +138,7 @@ const styleDe = (xml) => (/<w:pStyle w:val="([^"]+)"/.exec(xml) || [])[1] || '';
 
 /**
  * Compose le nouveau document. champs : { intitule, auteur, adresse, date } (notice) ou
- * { intitule, auteur, adresse, session } (mémoire). Rend un Uint8Array (.docx).
+ * { intitule, auteur, adresse, session } (mémoire), plus { tableaux, regles } (regles : tables pré-remplies). Rend un Uint8Array (.docx).
  */
 export async function composer(gabarit, plan, profil, champs) {
   const zip = await lireZip(gabarit);
@@ -168,13 +172,20 @@ export async function composer(gabarit, plan, profil, champs) {
   const garde = elements.slice(0, finGarde + 1).filter((x) => styleDe(x) !== 'Consigne').map(remplacer);
   const sectionFinale = elements[elements.length - 1].startsWith('<w:sectPr') ? elements[elements.length - 1] : '';
 
-  // Tables du gabarit (sommaire, liste des annexes, table des matières) : titre et champ, repris tels quels.
+  // Tables du gabarit (sommaire, liste des annexes, table des matières) : titre (style « Titre hors table », hors de la
+  // table elle-même) et instruction du champ.
   const champsGabarit = {};
   elements.forEach((x, k) => {
     if (/\bTOC\b/.test(x) && k > 0 && styleDe(elements[k - 1]) === 'Titrehorsplan') {
       const titre = texteDe(elements[k - 1]).toLowerCase();
       const zone = titre.startsWith('sommaire') ? 'sommaire' : titre.startsWith('liste des annexes') ? 'liste-annexes' : 'tdm';
-      champsGabarit[zone] = elements[k - 1] + x;
+      let instr = (/<w:instrText[^>]*>([^<]*)</.exec(x) || [])[1] || ' TOC \\o "1-2" \\h \\z \\u ';
+      // Notice : sous-titres (niveau 3) dans la table ; mémoire : annexes dans la table des matières.
+      if (profil === 'notice' && zone === 'tdm') instr = instr.replace(/\\o "1-2"/, '\\o "1-3"');
+      if (profil === 'memoire' && zone === 'tdm' && !/\\t /.test(instr)) instr = instr.replace(/\s*$/, ' \\t "Titre annexe,1" ');
+      // Titre du sommaire et de la table des matières : style hors table (sinon la table se liste elle-même).
+      const titreXml = zone === 'liste-annexes' ? elements[k - 1] : elements[k - 1].replace('<w:pStyle w:val="Titrehorsplan"/>', '<w:pStyle w:val="Titrehorstable"/>');
+      champsGabarit[zone] = { titre: titreXml, instr };
     }
   });
 
@@ -189,25 +200,100 @@ export async function composer(gabarit, plan, profil, champs) {
       continue;
     }
     if (l.champ) {
-      if (champsGabarit[l.champ] && !poses.has(l.champ)) { corps.push(champsGabarit[l.champ]); poses.add(l.champ); }
+      if (champsGabarit[l.champ] && !poses.has(l.champ)) { corps.push({ champ: l.champ }); poses.add(l.champ); }
       continue;
     }
     corps.push(paragraphe(l.texte, l.style, l.gras));
   }
   // Tables attendues absentes du texte : sommaire en tête (mémoire), table des matières en tête (notice) ou en fin (mémoire).
   const tete = [];
-  if (profil === 'notice' && !poses.has('tdm') && champsGabarit.tdm) tete.push(champsGabarit.tdm);
-  if (profil === 'memoire' && !poses.has('sommaire') && champsGabarit.sommaire) tete.push(champsGabarit.sommaire);
-  const fin = profil === 'memoire' && !poses.has('tdm') && champsGabarit.tdm ? [champsGabarit.tdm] : [];
+  if (profil === 'notice' && !poses.has('tdm') && champsGabarit.tdm) tete.push({ champ: 'tdm' });
+  if (profil === 'memoire' && !poses.has('sommaire') && champsGabarit.sommaire) tete.push({ champ: 'sommaire' });
+  const fin = profil === 'memoire' && !poses.has('tdm') && champsGabarit.tdm ? [{ champ: 'tdm' }] : [];
 
-  const nouveauCorps = [...garde, ...tete, ...corps, ...fin, sectionFinale].join('');
-  const document = docXml.slice(0, ouverture) + nouveauCorps + docXml.slice(fermeture);
+  const styles = ajouterStyles(await zip.texte('word/styles.xml'));
+  const assembler = (entrees) => {
+    const morceaux = [...garde, ...tete, ...corps, ...fin, sectionFinale]
+      .map((x) => (typeof x === 'string' ? x : champsGabarit[x.champ].titre + champTable(champsGabarit[x.champ].instr, entrees[x.champ] || [])));
+    const document = docXml.slice(0, ouverture) + morceaux.join('') + docXml.slice(fermeture);
+    return ecrire(zip, { 'word/document.xml': document, 'word/styles.xml': styles });
+  };
+  // Première passe : document sans entrées ; seconde : entrées des tables avec la page estimée de chaque titre
+  // (Word les recalcule au clic « Mettre à jour la table », ou par le bouton du complément).
+  const brouillon = await assembler({});
+  if (!champs.regles) return brouillon;
+  return assembler(entreesDesTables(await lireDocx(brouillon), champs.regles, champsGabarit));
+}
 
+/** Entrées des tables d'un document composé : { tdm: [{ niveau, texte, page }], sommaire, 'liste-annexes' }. */
+function entreesDesTables(doc, regles, champsGabarit) {
+  const pages = pagesDesTitres(doc, regles);
+  const niveauDe = (b) => {
+    const m = /^heading (\d)$/.exec(b.style || '');
+    if (m) return Number(m[1]);
+    return { 'titre hors plan': 1, 'titre notice': 2, 'sous-titre notice': 3 }[b.style] || null;
+  };
+  // Pages numérotées à partir de 1 après la page de garde (section 2 du gabarit).
+  const garde = Math.max(1, ...doc.blocs.filter((b) => b.garde).map((b) => pages.get(b.i) || 1));
+  const titres = doc.blocs.filter((b) => b.titre && !b.garde && b.tableau === null && pages.has(b.i));
+  const entree = (b, niveau) => ({ niveau, texte: `${b.label || ''}${b.texte}`.replace(/\s+/g, ' ').trim(), page: Math.max(1, pages.get(b.i) - garde) });
+  const resultat = {};
+  for (const [zone, { instr }] of Object.entries(champsGabarit)) {
+    // Niveaux de plan (\\o "1-n") et styles nommés (\\t "Titre annexe,1").
+    const o = /\\o "1-(\d)"/.exec(instr);
+    const max = o ? Number(o[1]) : 0;
+    const nommes = /\\t "Titre annexe,(\d)"/.exec(instr);
+    resultat[zone] = titres.map((b) => ({ b, n: b.style === 'titre annexe' ? (nommes ? Number(nommes[1]) : null) : niveauDe(b) && niveauDe(b) <= max ? niveauDe(b) : null }))
+      .filter((x) => x.n).map((x) => entree(x.b, x.n));
+  }
+  return resultat;
+}
+
+/** Champ de table (TOC) : entrées pré-remplies, ou consigne si aucune. */
+function champTable(instr, entrees) {
+  const debut = `<w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r><w:r><w:instrText xml:space="preserve">${echapper(instr)}</w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>`;
+  const fin = '<w:r><w:fldChar w:fldCharType="end"/></w:r>';
+  if (!entrees.length) return `<w:p>${debut}<w:r><w:t>[Clic droit sur la table, « Mettre à jour la table »]</w:t></w:r>${fin}</w:p>`;
+  return entrees.map((e, k) => `<w:p><w:pPr><w:pStyle w:val="TOC${e.niveau}"/><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="9060"/></w:tabs></w:pPr>${k ? '' : debut}`
+    + `<w:r><w:t xml:space="preserve">${echapper(e.texte)}</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>${e.page}</w:t></w:r>${k === entrees.length - 1 ? fin : ''}</w:p>`).join('');
+}
+
+/**
+ * Styles ajoutés au gabarit s'ils manquent : « Titre hors table » (titre d'une table, absent de la table elle-même),
+ * « Sous-titre notice » (niveau 3), entrées de table « toc 1 » à « toc 4 ».
+ */
+export function ajouterStyles(xml) {
+  if (!xml) return xml;
+  const ajouts = [];
+  const existe = (id) => xml.includes(`w:styleId="${id}"`);
+  if (!existe('Titrehorstable')) {
+    const base = (/<w:style\b[^>]*w:styleId="Titrehorsplan"[^>]*>[\s\S]*?<\/w:style>/.exec(xml) || [])[0];
+    if (base) {
+      let copie = base.replace('w:styleId="Titrehorsplan"', 'w:styleId="Titrehorstable"').replace(/<w:name w:val="[^"]*"\/>/, '<w:name w:val="Titre hors table"/>');
+      copie = /<w:outlineLvl /.test(copie) ? copie.replace(/<w:outlineLvl w:val="\d"\/>/, '<w:outlineLvl w:val="9"/>') : copie.replace('<w:pPr>', '<w:pPr><w:outlineLvl w:val="9"/>');
+      ajouts.push(copie);
+    }
+  }
+  if (!existe('Soustitrenotice')) {
+    ajouts.push('<w:style w:type="paragraph" w:customStyle="1" w:styleId="Soustitrenotice"><w:name w:val="Sous-titre notice"/><w:basedOn w:val="Normal"/>'
+      + '<w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="240" w:after="120"/><w:outlineLvl w:val="2"/></w:pPr><w:rPr><w:b/></w:rPr></w:style>');
+  }
+  for (const n of [1, 2, 3, 4]) {
+    if (!existe(`TOC${n}`)) {
+      ajouts.push(`<w:style w:type="paragraph" w:styleId="TOC${n}"><w:name w:val="toc ${n}"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/>`
+        + `<w:uiPriority w:val="39"/><w:unhideWhenUsed/><w:pPr><w:spacing w:before="0" w:after="60"/><w:ind w:left="${(n - 1) * 240}"/></w:pPr>${n === 1 ? '<w:rPr><w:b/></w:rPr>' : ''}</w:style>`);
+    }
+  }
+  return ajouts.length ? xml.replace('</w:styles>', `${ajouts.join('')}</w:styles>`) : xml;
+}
+
+/** Réécrit le .docx du gabarit avec les parties remplacées. */
+async function ecrire(zip, remplacees) {
   const utf8 = new TextEncoder();
   const fichiers = [];
   for (const nom of zip.noms) {
     if (nom.endsWith('/')) continue;
-    fichiers.push({ nom, donnees: nom === 'word/document.xml' ? utf8.encode(document) : await zip.octets(nom) });
+    fichiers.push({ nom, donnees: nom in remplacees ? utf8.encode(remplacees[nom]) : await zip.octets(nom) });
   }
   return ecrireZip(fichiers);
 }

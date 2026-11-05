@@ -12,7 +12,7 @@ test('notice fictive → document au gabarit : garde remplie, sections, tableaux
   const source = await docx('fixtures/notice-fictive.docx');
   const plan = planifier(source, await regles(), 'notice');
   const octets = await composer(await gabarit('gabarit-demande-agrement.docx'), plan, 'notice',
-    { intitule: 'Sujet fictif', auteur: 'Prénom NOM', adresse: '75001 Paris', date: 'novembre 2026', tableaux: source.tableauxXml });
+    { intitule: 'Sujet fictif', auteur: 'Prénom NOM', adresse: '75001 Paris', date: 'novembre 2026', tableaux: source.tableauxXml, regles: await regles() });
   const sortie = await lireDocx(octets);
   const garde = sortie.blocs.filter((b) => b.garde).map((b) => b.texte).join(' | ');
   for (const t of ['Sujet fictif', 'Prénom NOM', '75001 Paris', 'novembre 2026', "Demande d'agrément du sujet de mémoire"]) assert.ok(garde.includes(t), `garde : ${t}`);
@@ -20,6 +20,12 @@ test('notice fictive → document au gabarit : garde remplie, sections, tableaux
   assert.equal(sortie.tableaux, source.blocs.filter((b) => b.tableau !== null && !b.garde).reduce((s, b) => s.add(b.tableau), new Set()).size);
   const styles = new Set(sortie.blocs.map((b) => b.style));
   for (const st of ['titre hors plan', 'titre notice', 'titre catégorie']) assert.ok(styles.has(st), `style ${st}`);
+  // Table des matières pré-remplie (sections et sous-titres), sans sa propre entrée ; sous-titres stylés, sans « 1.1 ».
+  const toc = sortie.blocs.filter((b) => /^toc \d$/.test(b.style)).map((b) => b.texte);
+  assert.ok(toc.length >= 7, `entrées : ${toc.length}`);
+  assert.ok(!toc.some((t) => /^table des mati/i.test(t)), 'la table ne se liste pas');
+  assert.ok(sortie.blocs.some((b) => b.style === 'titre hors table' && /^Table des mati/.test(b.texte)));
+  assert.ok(!sortie.blocs.some((b) => b.style === 'sous-titre notice' && /^\d+\.\d/.test(b.texte)));
   const r = await lancer(sortie, { profil: 'notice' });
   assert.ok(!r.ids.has('A19'), r.lignes.filter((l) => l.startsWith('A19')).join('\n'));
 });

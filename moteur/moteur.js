@@ -82,8 +82,16 @@ export function controler(doc, regles, options) {
 const CAR_LIGNE = 90;
 const LIGNES_PAGE = 32;
 
+/** Page estimée de chaque titre (page physique, page de garde = 1) : sert à pré-remplir les tables du gabarit. */
+export function pagesDesTitres(doc, regles) {
+  const copie = structuredClone(doc);
+  const S = analyserStructure(copie, regles);
+  return pagination(copie, S, regles.parametres.caracteres_par_page).parBloc;
+}
+
 function pagination(doc, S, parPage) {
   const lignes = [];
+  const parBloc = new Map();
   let page = 1;
   let rempli = 0; // lignes déjà occupées sur la page courante
   let vide = true; // page commencée sans texte (paragraphes vides seulement) : pas de nouveau saut
@@ -100,6 +108,7 @@ function pagination(doc, S, parPage) {
   for (const b of doc.blocs) {
     if (b.i === premiereApresGarde) nouvellePage();
     if ((b.sautAvant || (b.titre && b.niveau === 1)) && !b.garde) nouvellePage();
+    if (b.titre) parBloc.set(b.i, page);
     if (b.titre && b.niveau <= 2 && !b.garde && !S.dans('plan-det', b.i) && !S.dans('plan-synth', b.i)) {
       const car = caracteres(doc.blocs.slice(b.i, b.fin));
       lignes.push({ i: b.i, intitule: b.intitule, niveau: b.niveau, page, pages: car / parPage });
@@ -121,5 +130,6 @@ function pagination(doc, S, parPage) {
   }
   if (rangee) ajouter(rangee.n);
   lignes.total = page;
+  lignes.parBloc = parBloc;
   return lignes;
 }

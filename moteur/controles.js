@@ -852,16 +852,17 @@ function B01(doc, S, { profil }) {
     if (!entrees) continue;
     const z = S.zone(nom);
     const utiles = entrees.filter((b) => !/^\[.*\]$/.test(b.texte.trim()));
-    if (!utiles.length) { o.push(occ(z.titre, `« ${NOMS_PIECES[nom] || nom} » vide : clic droit, « Mettre à jour les champs ».`)); continue; }
+    if (!utiles.length) { o.push(occ(z.titre, `« ${NOMS_PIECES[nom] || nom} » vide : clic droit sur la table, « Mettre à jour la table ».`, { corrections: [{ type: 'tables', i: z.titre.i }] })); continue; }
     const lues = new Set(utiles.map((b) => cleTitre(b.intitule.replace(ENTREE_PAGE, ''))));
     for (const b of utiles) {
       const c = cleTitre(b.intitule.replace(ENTREE_PAGE, ''));
-      if (c && !cles.has(c)) o.push(occ(b, 'Entrée sans titre correspondant : table à mettre à jour.'));
+      if (c && !cles.has(c)) o.push(occ(b, 'Entrée sans titre correspondant : table à mettre à jour.', { corrections: [{ type: 'tables', i: b.i }] }));
     }
     for (const t of titresTexte) {
-      if (t.niveau > profondeur || t.zone === nom || (profil === 'memoire' && nom === 'sommaire' && t.role !== 'plan')) continue;
+      // Titres des tables elles-mêmes (sommaire, table des matières) : hors des tables.
+      if (t.niveau > profondeur || t.zone === nom || t.zone === 'sommaire' || t.zone === 'tdm' || (profil === 'memoire' && nom === 'sommaire' && t.role !== 'plan')) continue;
       if (t.role === 'categorie') continue;
-      if (!lues.has(cleTitre(t.intitule))) o.push(occ(t, `Titre absent de « ${NOMS_PIECES[nom] || nom} » : table à mettre à jour.`));
+      if (!lues.has(cleTitre(t.intitule))) o.push(occ(t, `Titre absent de « ${NOMS_PIECES[nom] || nom} » : table à mettre à jour.`, { corrections: [{ type: 'tables', i: t.i }] }));
     }
   }
   return { occurrences: o, infos: [] };
