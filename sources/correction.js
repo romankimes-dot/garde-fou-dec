@@ -26,6 +26,7 @@ export const LIBELLES = {
   'sans-numero': 'numéro 1.1 retiré du sous-titre',
   renommer: 'intitulé exact de la Note',
   'style-normal': 'style Normal en taille 12',
+  tables: 'mise à jour des tables (sommaire, table des matières, liste des annexes)',
 };
 
 /** Paires de guillemets droits d'un texte : null si ambiguës (nombre impair, pouces, espace intérieure). */
@@ -222,7 +223,7 @@ export async function corriger(liste, doc, parametres) {
       const cle = `${c.type}|${c.i}`;
       if (vus.has(cle)) continue;
       vus.add(cle);
-      if (c.type === 'style-normal') { cibles.push({ c }); continue; }
+      if (c.type === 'style-normal' || c.type === 'tables') { cibles.push({ c }); continue; }
       const para = paras.items[c.i];
       const bloc = doc.blocs[c.i];
       if (!para || !bloc || comparable(para.text) !== comparable(bloc.texte)) {
@@ -262,6 +263,15 @@ export async function corriger(liste, doc, parametres) {
         await styleNormal(context, parametres.taille_texte, journal, compte);
       } catch (e) {
         erreurs.push(`style Normal : ${e.message}`);
+      }
+    }
+
+    if (cibles.some((x) => x.c.type === 'tables')) {
+      try {
+        compte.tables = await mettreAJourTables(context);
+        compte.corrections += compte.tables;
+      } catch (e) {
+        erreurs.push(`tables : ${e.message}`);
       }
     }
 
@@ -327,6 +337,23 @@ async function styleNormal(context, taille, journal, compte) {
     }
     await context.sync();
   }
+}
+
+/**
+ * Met à jour les tables (champs TOC) : numéros de page et entrées recalculés par Word (WordApi 1.5).
+ * Rend le nombre de tables mises à jour.
+ */
+async function mettreAJourTables(context) {
+  const champs = context.document.body.fields;
+  if (!champs || typeof Office === 'undefined' || !Office.context.requirements.isSetSupported('WordApi', '1.5')) {
+    throw new Error('non disponible dans cette version de Word : clic droit sur la table, « Mettre à jour la table »');
+  }
+  champs.load('items/code');
+  await context.sync();
+  const tables = champs.items.filter((f) => /^\s*TOC\b/.test(f.code || ''));
+  tables.forEach((f) => f.updateResult());
+  await context.sync();
+  return tables.length;
 }
 
 /** Annule les remplacements d'un journal, du dernier au premier, mise en forme comprise. */

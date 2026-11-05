@@ -11,6 +11,8 @@ export const STYLES_TITRES = {
   'titre notice': ['section-notice', 2],
   'titre catégorie': ['categorie', 3],
   'titre annexe': ['annexe', 1],
+  'titre hors table': ['zone', 1],
+  'sous-titre notice': ['sous-titre', 3],
 };
 export const STYLES_CONSIGNE = new Set(['consigne']);
 

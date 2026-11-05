@@ -40,7 +40,7 @@ else {
   const gabarit = await readFile(ici(`gabarits/${profil === 'memoire' ? 'gabarit-memoire.docx' : 'gabarit-demande-agrement.docx'}`));
   octets = await composer(gabarit, plan, profil, {
     intitule: 'Intitulé de contrôle', auteur: 'Camille MARTIN', adresse: '75001 Paris', date: 'novembre 2026',
-    session: "Session d'automne (novembre) 2027", tableaux: doc.tableauxXml || [],
+    session: "Session d'automne (novembre) 2027", tableaux: doc.tableauxXml || [], regles,
   });
   await writeFile(join(sortie, `compose-${profil}.docx`), octets);
 }
@@ -70,7 +70,7 @@ if (motsResultat < motsSource * 0.98) defauts.push(`Résultat plus court que la 
 
 // 2. Styles : chaque titre prévu porte le style attendu.
 const NOMS = { Titrehorsplan: 'titre hors plan', Titrenotice: 'titre notice', 'Titrecatégorie': 'titre catégorie', Titreannexe: 'titre annexe',
-  Heading1: 'heading 1', Heading2: 'heading 2', Heading3: 'heading 3', Heading4: 'heading 4', Normal: 'normal' };
+  Soustitrenotice: 'sous-titre notice', Heading1: 'heading 1', Heading2: 'heading 2', Heading3: 'heading 3', Heading4: 'heading 4', Normal: 'normal' };
 const parTexte = new Map(res.blocs.filter((b) => !b.garde).map((b) => [norme(b.texte), b]));
 const malStyles = plan.lignes.filter((l) => l.style && l.style !== 'Normal').filter((l) => {
   const b = parTexte.get(norme(l.texte)) || res.blocs.find((x) => norme(x.texte).endsWith(norme(l.texte)));
@@ -99,7 +99,7 @@ const lancer = (d) => controler(structuredClone(d), regles, { profil, termes: []
 const avant = lancer(doc);
 const apres = lancer(res);
 // Tables du gabarit vides tant que Word n'a pas mis à jour les champs : attendu, pas une régression.
-const AVANT_MAJ = /Mettre à jour les champs|Mettre à jour les cha/;
+const AVANT_MAJ = /Mettre à jour (les champs|les cha|la table)/;
 const parRegle = (r) => Object.fromEntries(r.resultats
   .map((x) => [x.regle.id, x.occurrences.filter((o) => !AVANT_MAJ.test(o.message)).length]).filter(([, n]) => n));
 const pa = parRegle(avant);

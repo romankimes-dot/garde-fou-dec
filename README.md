@@ -13,7 +13,21 @@ Accueil, Compléments, « Plus de compléments », « Mes compléments », « Ch
 - **Document** : demande d'agrément (notice) ou mémoire. Un seul contrôle : exigences de la Note bloquantes, préférences et typographie à vérifier, restes de travail (consignes, repères, TODO, commentaires, révisions) comptés à part, à nettoyer avant l'export PDF.
 - **Contrôler ce document** : lit le document ouvert, mise en page comprise. Un clic sur un extrait sélectionne le passage. **Contrôler un fichier .docx** : même contrôle sur une copie.
 - Chaque règle : sa base (Note du jury, page citée, ou préférence), « Comment corriger », et dans Word les boutons **Corriger** (aperçu avant/après pour les changements de texte) et **Sélectionner pour trier** (tri de la bibliographie par Accueil, Trier).
-- **Gabarit** (mise en forme) : le texte collé sans mise en forme dans le document ouvert est versé dans un **nouveau document** créé depuis le gabarit du jury (page de garde remplie, table des matières, styles, tableaux repris) ; le document d'origine n'est pas modifié et l'outil n'écrit aucun texte. Gabarits vierges téléchargeables depuis le même onglet.
+- **Gabarit** (mise en forme) : le texte collé sans mise en forme dans le document ouvert est versé dans un **nouveau document** créé depuis le gabarit du jury ; le document d'origine n'est pas modifié et l'outil n'écrit aucun texte. Les styles voyagent avec le document (rien à créer dans Word) :
+
+  | Élément reconnu | Style appliqué |
+  | --- | --- |
+  | Page de garde | Page de garde (champs de l'onglet) |
+  | Titres du sommaire et de la table des matières | Titre hors table (absent de la table) |
+  | Notice explicative, plans, bibliographie, liste des annexes, introduction, conclusion… | Titre hors plan (niveau 1) |
+  | Section de la notice « 1. … » à « 7. … » | Titre notice (niveau 2) |
+  | Sous-titre de la notice (numéro « 1.1 » retiré) | Sous-titre notice (niveau 3) |
+  | Partie, Chapitre, Section, § du mémoire | Titre 1 à 4, numéros automatiques « Partie 1 – » |
+  | Catégorie de la bibliographie | Titre catégorie |
+  | Annexe | Titre annexe, numéro automatique « Annexe 1 – » |
+  | Texte | Normal (taille 12, interligne 1,5) |
+
+  Tables pré-remplies (entrées et pages estimées) ; dans le nouveau document, Garde-fou propose « Corriger : mise à jour des tables » pour les pages exactes. Liens hypertextes et images non repris (signalés avant création). Gabarits vierges téléchargeables depuis le même onglet.
 - **Exigences de la Note** : toutes les exigences, contrôlées ou à vérifier soi-même, dépôt compris, et les codes du sujet. Chaque alerte est rattachée à une seule exigence ; une exigence à vérifier soi-même se coche « Marquer vérifié » (mémorisé pour ce document, dans ce navigateur).
 - **Copier les alertes** : règles et messages, passages masqués, pour le calibrage.
 - **Réglages** : termes du cabinet, des clients et des personnes (conservés dans ce navigateur seulement) ; occurrences ignorées ; diagnostic de lecture.
@@ -37,7 +51,7 @@ Le PDF exporté reste la référence pour la pagination exacte (`scripts/mise-en
 ## Limites connues
 
 - Lecture du document ouvert et corrections testées sur une imitation de Word (`tests/`), à confirmer dans Word (Réglages, Diagnostic, ligne `ooxml`).
-- Mise en forme au gabarit : liens hypertextes et images non repris (signalés avant création) ; tables des matières à mettre à jour dans Word.
+- Mise en forme au gabarit : liens hypertextes et images non repris (signalés avant création) ; pages des tables estimées jusqu'à leur mise à jour par Word.
 - Non contrôlables : pagination réelle (le PDF fait foi), signature manuscrite, contenu des images, fond (contenu des sections, transitions, plagiat) ; le panneau « Exigences de la Note » les rappelle.
 
 ## Organisation
