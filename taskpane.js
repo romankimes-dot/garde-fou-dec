@@ -8,11 +8,11 @@ import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Propreté' };
-const VERSION = '0.4.2';
+const VERSION = '0.5.0';
 
 const etat = {
   profil: 'notice', mode: 'redaction', termes: [], ignores: {},
-  regles: null, doc: null, cleDoc: null, dansWord: false, nomDoc: '', ouvertes: new Set(),
+  regles: null, doc: null, cleDoc: null, dansWord: false, nomDoc: '', ouvertes: new Set(), filtre: 'tous', deplies: new Set(),
 };
 
 // ---------------------------------------------------------------- stockage local (ce navigateur seulement)
@@ -50,12 +50,20 @@ async function demarrer() {
   }
   $('termes').value = etat.termes.join('\n');
   afficherExigences();
+  for (const b of document.querySelectorAll('.onglets [role="tab"]')) b.addEventListener('click', () => ouvrirOnglet(b.id.replace('onglet-', '')));
+  for (const b of document.querySelectorAll('[data-filtre]')) {
+    b.addEventListener('click', () => {
+      etat.filtre = etat.filtre === b.dataset.filtre && b.classList.contains('tuile') ? 'tous' : b.dataset.filtre;
+      if (etat.dernier) afficherAlertes(etat.dernier);
+    });
+  }
+  $('tout-replier').addEventListener('click', () => { etat.ouvertes.clear(); document.querySelectorAll('.regle[open]').forEach((d) => { d.open = false; }); });
   $('pied').textContent = `Garde-fou ${VERSION}. Règles du ${regles.version}. ${regles.reference}.`;
 
   $('controler-ouvert').hidden = !etat.dansWord;
   if (!etat.dansWord) statut('Hors de Word : seul le contrôle d\'un fichier .docx est possible.');
-  $('controler-ouvert').addEventListener('click', lireOuvert);
-  $('fichier').addEventListener('change', (e) => e.target.files[0] && lireFichier(e.target.files[0]));
+  $('controler-ouvert').addEventListener('click', () => { etat.retour = null; lireOuvert(); });
+  $('fichier').addEventListener('change', (e) => { etat.retour = null; if (e.target.files[0]) lireFichier(e.target.files[0]); });
   document.body.addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('depot-survol'); });
   document.body.addEventListener('dragleave', () => document.body.classList.remove('depot-survol'));
   document.body.addEventListener('drop', (e) => {
@@ -70,6 +78,7 @@ async function demarrer() {
     statut(`${etat.termes.length} terme(s) enregistré(s) dans ce navigateur.`);
     if (etat.doc) afficher();
   });
+  $('voir-ignorees').addEventListener('click', () => { etat.filtre = 'ignorees'; ouvrirOnglet('alertes'); if (etat.dernier) afficherAlertes(etat.dernier); });
   $('oublier-ignores').addEventListener('click', () => {
     if (!etat.cleDoc) return;
     delete etat.ignores[etat.cleDoc];
@@ -82,12 +91,13 @@ async function demarrer() {
     $('diagnostic').textContent = texte;
     if (await copier(texte)) { statut('Alertes copiées, sans extrait du document : les relire avant de les transmettre.'); return; }
     $('diagnostic').hidden = false;
-    $('reglages').open = true;
+    ouvrirOnglet('reglages');
     selectionner($('diagnostic'));
     statut('Copie refusée par Word : alertes affichées et sélectionnées dans Réglages, faire Ctrl+C (Cmd+C).', true);
   });
   $('copier-diagnostic').addEventListener('click', async () => {
-    const d = { complement: VERSION, source: etat.doc?.source || null, ...(etat.doc?.diagnostic || {}), erreur: etat.erreur || null };
+    const d = { complement: VERSION, source: etat.doc?.source || null, ...(etat.doc?.diagnostic || {}), erreur: etat.erreur || null,
+      derniereCorrection: etat.dernierRapport || null };
     const texte = JSON.stringify(d, null, 1);
     $('diagnostic').textContent = texte;
     $('diagnostic').hidden = false;
@@ -212,8 +222,22 @@ function nomDuDocument() {
 
 // ---------------------------------------------------------------- lecture
 
+function occupe(oui) {
+  $('controler-ouvert').classList.toggle('occupe', oui);
+  $('controler-ouvert').querySelector('.libelle').textContent = oui ? 'Contrôle en cours…' : 'Contrôler ce document';
+}
+
+function ouvrirOnglet(nom) {
+  for (const b of document.querySelectorAll('.onglets [role="tab"]')) {
+    const actif = b.id === `onglet-${nom}`;
+    b.setAttribute('aria-selected', String(actif));
+    $(b.getAttribute('aria-controls')).hidden = !actif;
+  }
+}
+
 async function lireOuvert() {
   statut('Lecture du document…');
+  occupe(true);
   const debut = performance.now();
   try {
     etat.doc = await lireWord();
@@ -224,7 +248,9 @@ async function lireOuvert() {
     afficher(performance.now() - debut);
   } catch (e) {
     etat.erreur = `${e.name || 'Erreur'} : ${e.message}${e.code ? ` (${e.code})` : ''}`;
-    statut(`Lecture impossible : ${etat.erreur}.${etat.doc ? ' Les résultats ci-dessous sont ceux de la lecture précédente.' : ''}`, true);
+    statut(`Lecture impossible : ${etat.erreur}.${etat.doc ? ' Les résultats affichés sont ceux de la lecture précédente.' : ''}`, true);
+  } finally {
+    occupe(false);
   }
 }
 
@@ -267,61 +293,120 @@ function afficher(duree) {
 
   const d = doc.diagnostic || {};
   const temps = duree ? ` en ${(duree / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s` : '';
-  statut(`${etat.nomDoc} · ${doc.source === 'docx' ? 'fichier .docx' : 'document ouvert'} · ${d.paragraphes} paragraphes lus${temps} · ${new Date().toLocaleTimeString('fr-FR')}.`);
+  statut(`${etat.nomDoc} · ${doc.source === 'docx' ? 'fichier .docx' : 'document ouvert'} · ${d.paragraphes} paragraphes${temps} · ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`);
 
   const feux = { rouge: 'Points bloquants', orange: 'Points à vérifier', vert: 'Aucun écart trouvé' };
+  $('accueil').hidden = true;
   $('synthese').hidden = false;
   $('feu').className = `feu ${r.feu}`;
   $('feu-texte').textContent = feux[r.feu];
-  $('comptes').textContent = `${r.comptes.bloquants} bloquant(s) · ${r.comptes.avertissements} à vérifier · ${r.comptes.ignores} ignoré(s) · ${etat.profil === 'notice' ? 'notice' : 'mémoire'}, mode ${etat.mode === 'depot' ? 'dépôt' : 'rédaction'}`;
+  $('contexte').textContent = `${etat.profil === 'notice' ? 'Notice' : 'Mémoire'} · ${etat.mode === 'depot' ? 'dépôt' : 'rédaction'}`;
+  $('n-bloquants').textContent = r.comptes.bloquants;
+  $('n-avertissements').textContent = r.comptes.avertissements;
+  $('n-corrigeables').textContent = r.resultats.reduce((n, x) => n + x.occurrences.filter((o) => o.corrections?.length).length, 0);
+  $('bandeau-profil').replaceChildren(...r.infos.filter((x) => x.regle === '-').map((x) => el('p', { class: 'bandeau' }, x.texte)));
+  $('compte-ignores').textContent = r.comptes.ignores ? `${r.comptes.ignores} occurrence(s) ignorée(s)` : '';
+  $('pied-alertes').hidden = false;
+  $('filtres').hidden = false;
+  const n = r.comptes.bloquants + r.comptes.avertissements;
+  $('compte-alertes').textContent = n || '';
+  $('compte-alertes').className = `compteur ${r.comptes.bloquants ? 'bloquant' : n ? 'avertissement' : ''}`;
+  afficherAlertes(r);
 
-  $('infos').hidden = !r.infos.length;
-  const choix = r.infos.filter((x) => x.regle === '-');
-  $('infos').replaceChildren(...choix.map((x) => el('p', { class: 'alerte-profil' }, x.texte)),
-    el('details', {}, el('summary', {}, `Mesures et informations (${r.infos.length - choix.length})`),
-      ...r.infos.filter((x) => x.regle !== '-').map((x) => el('p', {}, `${x.regle} · ${x.texte}`))));
+  // Mesures : informations des contrôles (volumes, bibliographie, mise en page) et pagination estimée.
+  const mesures = r.infos.filter((x) => x.regle !== '-');
+  $('mesures-vide').hidden = mesures.length > 0;
+  $('infos').replaceChildren(...mesures.map((x) => el('li', { class: 'mesure' }, el('span', { class: 'id' }, x.regle), el('span', {}, x.texte))));
+  $('pagination-bloc').hidden = !r.pagination.length;
+  $('pagination').replaceChildren(...r.pagination.map((l) => el('tr', { class: `n${l.niveau}` },
+    el('td', {}, l.intitule), el('td', {}, `p. ${l.page}`), el('td', {}, pages(l.pages)))));
 
+  afficherExigences();
+}
+
+/** Garde une occurrence selon le filtre courant. */
+function garder(o) {
+  switch (etat.filtre) {
+    case 'bloquant': return o.niveau === 'bloquant';
+    case 'avertissement': return o.niveau !== 'bloquant';
+    case 'corrigeable': return !!o.corrections?.length;
+    case 'ignorees': return true;
+    default: return true;
+  }
+}
+
+function afficherAlertes(r) {
+  for (const b of document.querySelectorAll('[data-filtre]')) b.setAttribute('aria-pressed', String(b.dataset.filtre === etat.filtre));
+  $('filtre-ignorees').textContent = `Ignorées${r.comptes.ignores ? ` (${r.comptes.ignores})` : ''}`;
+  $('filtre-ignorees').hidden = !r.comptes.ignores && etat.filtre !== 'ignorees';
+  const retour = etat.retour;
+  $('retour').hidden = !retour;
+  if (retour) {
+    $('retour').className = `retour${retour.erreur ? ' erreur' : ''}`;
+    $('retour').replaceChildren(el('strong', {}, retour.texte), retour.details ? el('span', { class: 'details' }, retour.details) : null);
+  }
   const conformes = [];
   const blocs = [];
   for (const [cat, nomCat] of Object.entries(CATEGORIES)) {
     const res = r.resultats.filter((x) => x.regle.categorie === cat);
-    const avec = res.filter((x) => x.occurrences.length);
     res.filter((x) => !x.occurrences.length).forEach((x) => conformes.push(x));
+    const source = (x) => (etat.filtre === 'ignorees' ? (x.ignorees || []).map((o) => ({ ...o, ignoree: true })) : x.occurrences);
+    const avec = res.map((x) => ({ ...x, occurrences: source(x).filter(garder) })).filter((x) => x.occurrences.length);
     if (!avec.length) continue;
-    blocs.push(el('h2', { class: 'categorie' }, `${cat}. ${nomCat}`));
+    const total = avec.reduce((k, x) => k + x.occurrences.length, 0);
+    blocs.push(el('h2', { class: 'categorie' }, el('span', {}, nomCat), el('span', {}, `${total}`)));
+    // Bloquants d'abord, puis par nombre d'occurrences.
+    avec.sort((x, y) => (y.occurrences.some((o) => o.niveau === 'bloquant') - x.occurrences.some((o) => o.niveau === 'bloquant'))
+      || x.regle.id.localeCompare(y.regle.id));
     for (const x of avec) blocs.push(carteRegle(x));
   }
-  if (conformes.length) {
+  if (!blocs.length) {
+    blocs.push(el('div', { class: 'vide' }, el('p', { class: 'vide-titre' }, etat.filtre === 'tous' ? 'Aucun écart trouvé' : etat.filtre === 'ignorees' ? 'Aucune occurrence ignorée' : 'Rien dans ce filtre'),
+      el('p', {}, etat.filtre === 'tous' ? 'Voir aussi l\'onglet Exigences : certaines se vérifient à la main.' : 'Choisir « Toutes » pour tout revoir.')));
+  }
+  if (conformes.length && etat.filtre === 'tous') {
     blocs.push(el('details', { class: 'conformes' },
       el('summary', {}, `Contrôles sans écart ou hors de portée (${conformes.length})`),
       el('ul', {}, ...conformes.map((x) => el('li', {}, `${x.regle.id} ${x.regle.titre}${x.horsSource ? ' : sur le .docx seulement' : ''}`)))));
   }
   $('resultats').replaceChildren(...blocs);
-
-  afficherExigences();
-  const aVerifier = etat.regles.exigences.filter((e) => e.profils.includes(etat.profil) && (!e.regles.length || e.manuel)).length;
-  // (exigences non contrôlables ou contrôlées en partie)
-  $('rappel').textContent = `${aVerifier} exigence(s) de la Note à vérifier aussi vous-même : voir « Exigences de la Note » plus bas.`;
-
-  $('pagination-bloc').hidden = !r.pagination.length;
-  $('pagination').replaceChildren(...r.pagination.map((l) => el('tr', { class: `n${l.niveau}` },
-    el('td', {}, l.intitule), el('td', {}, `p. ${l.page}`), el('td', {}, pages(l.pages)))));
 }
+
+const CHEVRON = () => {
+  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  s.setAttribute('viewBox', '0 0 16 16');
+  s.setAttribute('class', 'chevron');
+  s.setAttribute('aria-hidden', 'true');
+  s.innerHTML = '<path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>';
+  return s;
+};
+const VISIBLES = 8;
 
 function carteRegle(x) {
   const bloquants = x.occurrences.filter((o) => o.niveau === 'bloquant').length;
   const niveau = bloquants ? 'bloquant' : 'avertissement';
   const n = x.occurrences.length;
-  const libelle = niveau === 'bloquant' ? `${n} bloquant${n > 1 ? 's' : ''}` : `${n} à vérifier`;
-  const carte = el('details', { class: 'regle' },
+  const corrigeables = x.occurrences.filter((o) => o.corrections?.length).length;
+  const occurrences = etat.deplies.has(x.regle.id) ? x.occurrences : x.occurrences.slice(0, VISIBLES);
+  const liste = el('ul', { class: 'occurrences' }, ...occurrences.map((o) => ligneOccurrence(o, x)));
+  const plus = n > occurrences.length
+    ? el('button', { type: 'button', class: 'plus', onclick: () => { etat.deplies.add(x.regle.id); afficherAlertes(etat.dernier); } }, `Afficher les ${n - occurrences.length} autres`)
+    : null;
+  const carte = el('details', { class: `regle ${niveau}` },
     el('summary', {},
-      el('span', { class: 'nom' }, `${x.regle.id} ${x.regle.titre}`),
-      el('span', { class: `badge ${niveau}` }, libelle)),
-    el('p', { class: 'base' }, `${x.regle.nature === 'exigence' ? 'Note du jury' : 'Préférence'} : ${x.regle.base}`),
-    x.regle.corriger ? el('p', { class: 'conseil' }, el('strong', {}, 'Comment corriger : '), x.regle.corriger) : null,
-    blocAuto(x),
-    el('ul', { class: 'occurrences' }, ...x.occurrences.map((o) => ligneOccurrence(o, x))));
-  // Repliée par défaut ; l'état ouvert survit au réaffichage (Ignorer, changement de mode).
+      CHEVRON(),
+      el('span', { class: 'id' }, x.regle.id),
+      el('span', { class: 'nom' }, x.regle.titre),
+      corrigeables ? el('span', { class: 'badge auto', title: 'Corrigeables dans Word' }, `✓ ${corrigeables}`) : null,
+      el('span', { class: `badge ${niveau}`, title: niveau === 'bloquant' ? 'Bloquants' : 'À vérifier' }, `${n}`)),
+    el('div', { class: 'corps' },
+      el('p', { class: 'base' },
+        el('span', { class: `etiquette ${x.regle.nature === 'exigence' ? '' : 'preference'}` }, x.regle.nature === 'exigence' ? 'Note du jury' : 'Préférence'),
+        x.regle.base),
+      x.regle.corriger ? el('div', { class: 'conseil' }, el('strong', {}, 'Comment corriger'), x.regle.corriger) : null,
+      blocAuto(x),
+      liste, plus));
+  // Repliée par défaut ; l'état ouvert survit au réaffichage (Ignorer, changement de mode, filtre).
   carte.open = etat.ouvertes.has(x.regle.id);
   carte.addEventListener('toggle', () => {
     if (carte.open) etat.ouvertes.add(x.regle.id); else etat.ouvertes.delete(x.regle.id);
@@ -344,19 +429,22 @@ function apercuCorrections(liste, conteneur) {
     el('p', { class: 'discret' }, 'Aperçu : vérifier chaque ligne avant d\'appliquer (Ctrl+Z dans Word pour annuler ensuite).'),
     el('ul', {}, ...lignes),
     el('span', { class: 'gestes' },
-      el('button', { type: 'button', class: 'auto arme', onclick: () => appliquer(applicables) }, `Appliquer (${applicables.length})`),
-      el('button', { type: 'button', class: 'ignorer', onclick: () => conteneur.replaceChildren() }, 'Annuler'))));
+      el('button', { type: 'button', class: 'principal petit', onclick: () => appliquer(applicables) }, `Appliquer (${applicables.length})`),
+      el('button', { type: 'button', class: 'geste', onclick: () => conteneur.replaceChildren() }, 'Annuler'))));
 }
 
 /** Bouton de correction : aperçu pour les changements de texte, confirmation en deux temps sinon. */
 function boutonCorriger(liste, libelle, conteneur) {
   const types = new Set(liste.map((c) => c.type));
   const bouton = el('button', { class: 'auto', type: 'button' }, libelle);
-  let arme = false;
   bouton.addEventListener('click', () => {
     if ([...types].some((t) => AVEC_APERCU.has(t))) { apercuCorrections(liste, conteneur); return; }
-    if (!arme) { arme = true; bouton.textContent = 'Confirmer : modifier le document (Ctrl+Z pour annuler)'; bouton.classList.add('arme'); return; }
-    appliquer(liste);
+    const nb = new Set(liste.map((c) => c.i)).size;
+    conteneur.replaceChildren(el('div', { class: 'confirmation' },
+      el('p', {}, `${[...types].map((t) => LIBELLES[t]).join(' ; ')} : ${types.has('style-normal') ? 'style du document' : `${nb} paragraphe(s)`} modifié(s) dans le document. Ctrl+Z dans Word pour annuler.`),
+      el('span', { class: 'gestes' },
+        el('button', { type: 'button', class: 'principal petit', onclick: () => appliquer(liste) }, 'Appliquer'),
+        el('button', { type: 'button', class: 'geste', onclick: () => conteneur.replaceChildren() }, 'Annuler'))));
   });
   return bouton;
 }
@@ -368,7 +456,7 @@ function blocAuto(x) {
   const parType = new Map();
   for (const c of toutes) parType.set(c.type, [...(parType.get(c.type) || []), c]);
   if (!enWord()) {
-    return el('p', { class: 'discret auto' }, `Correction possible quand le document est ouvert dans Word : ${[...parType.keys()].map((t) => LIBELLES[t]).join(' ; ')}.`);
+    return el('div', { class: 'bloc-auto' }, el('p', { class: 'indication-auto' }, `Correction en un clic quand le document est ouvert dans Word : ${[...parType.keys()].map((t) => LIBELLES[t]).join(' ; ')}.`));
   }
   const apercuZone = el('div', {});
   const boutons = [...parType].map(([type, liste]) => boutonCorriger(liste,
@@ -379,15 +467,22 @@ function blocAuto(x) {
 async function appliquer(liste) {
   statut('Correction en cours…');
   try {
-    const { corrections, decales, ignorees } = await corriger(liste, etat.doc, etat.regles.parametres);
-    const msg = `${corrections} correction(s) appliquée(s) dans le document (Ctrl+Z dans Word pour annuler)`
-      + `${decales ? ` ; ${decales} paragraphe(s) modifié(s) depuis le contrôle, laissé(s) tel(s) quel(s)` : ''}`
-      + `${ignorees ? ` ; ${ignorees} cas ambigu(s) laissé(s) tel(s) quel(s)` : ''}. Contrôle relancé.`;
+    const r = await corriger(liste, etat.doc, etat.regles.parametres);
+    const details = [`${r.paragraphes} paragraphe(s) traité(s), ${r.trouves} passage(s) trouvé(s)`];
+    if (r.decales) details.push(`${r.decales} paragraphe(s) laissé(s) : texte différent de la dernière lecture (${r.exemples.join(' ; ')}) — relancer le contrôle`);
+    if (r.ignorees) details.push(`${r.ignorees} cas ambigu(s) laissé(s)`);
+    etat.retour = r.corrections
+      ? { texte: `${r.corrections} correction(s) appliquée(s) dans le document. Ctrl+Z dans Word pour annuler.`, details: details.join(' · ') }
+      : { erreur: true, texte: 'Aucune correction appliquée.', details: `${details.join(' · ')}. Copier le diagnostic (Réglages) et me le transmettre.` };
+    etat.dernierRapport = { liste: liste.length, types: [...new Set(liste.map((c) => c.type))], ...r };
     await lireOuvert();
-    statut(msg);
   } catch (e) {
-    statut(`Correction impossible : ${e.message}. Document protégé, en lecture seule, ou fonction absente de cette version de Word ?`, true);
+    etat.retour = { erreur: true, texte: `Correction impossible : ${e.message}`, details: 'Document protégé, en lecture seule, ou fonction absente de cette version de Word. Copier le diagnostic (Réglages).' };
+    etat.dernierRapport = { erreur: `${e.name} : ${e.message}${e.code ? ` (${e.code})` : ''}`, debug: e.debugInfo ? JSON.stringify(e.debugInfo).slice(0, 400) : null };
+    if (etat.dernier) afficherAlertes(etat.dernier);
   }
+  ouvrirOnglet('alertes');
+  $('retour').scrollIntoView({ block: 'nearest' });
 }
 
 async function selectionnerPourTri(plage) {
@@ -400,41 +495,61 @@ async function selectionnerPourTri(plage) {
   }
 }
 
+const ICONES = { ok: '✓', alerte: '▲', manuel: '☐', auto: '•' };
+
 function afficherExigences() {
   const r = etat.dernier && etat.dernier.profil === etat.profil ? etat.dernier : null;
   const groupes = new Map();
+  const totaux = { ok: 0, alerte: 0, manuel: 0, auto: 0 };
   for (const e of etat.regles.exigences.filter((x) => x.profils.includes(etat.profil))) {
     let etatEx = 'manuel';
     let libelle = 'À vérifier vous-même';
     if (e.regles.length) {
       const res = r ? r.resultats.filter((x) => e.regles.includes(x.regle.id)) : [];
       const n = res.reduce((k, x) => k + x.occurrences.length, 0);
-      const ids = `Règle${e.regles.length > 1 ? 's' : ''} ${e.regles.join(', ')}`;
+      const ids = e.regles.join(', ');
       const nonControle = r && r.infos.some((x) => e.regles.includes(x.regle) && /non contr[ôo]l/.test(x.texte));
-      if (!r) { etatEx = 'auto'; libelle = `Contrôlé (${ids})`; }
-      else if (n) { etatEx = 'alerte'; libelle = `${ids} : ${n} alerte(s) au total`; }
-      else if (nonControle) { etatEx = 'manuel'; libelle = `${ids} : non contrôlé (pièce introuvable), à vérifier vous-même`; }
+      if (!r) { etatEx = 'auto'; libelle = `Contrôlé · ${ids}`; }
+      else if (n) { etatEx = 'alerte'; libelle = `${n} alerte(s) · ${ids}`; }
+      else if (nonControle) { etatEx = 'manuel'; libelle = `Non contrôlé (pièce introuvable) · ${ids}`; }
       else if (res.length && res.every((x) => x.horsSource)) { etatEx = 'manuel'; libelle = 'Sur le .docx seulement'; }
-      else { etatEx = 'ok'; libelle = `${ids} : sans écart`; }
-      if (e.manuel && etatEx === 'ok') libelle += ' ; reste à vérifier vous-même';
+      else { etatEx = 'ok'; libelle = `Sans écart · ${ids}`; }
+      if (e.manuel && etatEx === 'ok') libelle += ' · reste à vérifier';
     }
-    if (!groupes.has(e.groupe)) groupes.set(e.groupe, []);
-    groupes.get(e.groupe).push(el('li', { class: `exigence ${etatEx}` },
+    totaux[etatEx]++;
+    if (!groupes.has(e.groupe)) groupes.set(e.groupe, { items: [], alertes: 0, manuels: 0 });
+    const g = groupes.get(e.groupe);
+    if (etatEx === 'alerte') g.alertes++;
+    if (etatEx === 'manuel' || e.manuel) g.manuels++;
+    g.items.push(el('li', { class: `exigence ${etatEx}` },
+      el('span', { class: 'icone', 'aria-hidden': 'true' }, ICONES[etatEx]),
       el('span', { class: 'statut-ex' }, libelle),
       el('span', {}, `${e.texte} (${e.page}).`),
       e.manuel ? el('span', { class: 'discret' }, e.manuel) : null));
   }
   const codes = etat.regles.parametres.codes_sujet;
   const blocs = [];
-  for (const [g, items] of groupes) {
-    blocs.push(el('li', { class: 'groupe-ex' }, g), ...items);
-    if (g === 'Dépôt' && etat.profil === 'notice' && codes) {
-      blocs.push(el('li', {}, el('details', {}, el('summary', {}, 'Codes du sujet (2 à 6 au document annexe)'),
+  for (const [nom, g] of groupes) {
+    if (nom === 'Dépôt' && etat.profil === 'notice' && codes) {
+      g.items.push(el('li', { class: 'exigence auto' }, el('span', { class: 'icone' }, 'i'), el('details', {},
+        el('summary', {}, 'Codes du sujet (2 à 6 au document annexe)'),
         el('p', { class: 'discret' }, 'Disciplines'), el('ul', { class: 'codes' }, ...codes.disciplines.map((c) => el('li', {}, c))),
         el('p', { class: 'discret' }, 'Secteurs et branches'), el('ul', { class: 'codes' }, ...codes.secteurs.map((c) => el('li', {}, c))))));
     }
+    const resume = [g.alertes ? `${g.alertes} en alerte` : '', g.manuels ? `${g.manuels} à vérifier` : ''].filter(Boolean).join(' · ') || 'sans écart';
+    const groupe = el('details', { class: 'groupe' }, el('summary', {}, CHEVRON(), el('span', {}, nom), el('span', { class: 'resume' }, resume)), el('ul', {}, ...g.items));
+    groupe.open = g.alertes > 0 || !r;
+    blocs.push(groupe);
   }
   $('exigences').replaceChildren(...blocs);
+  const total = Object.values(totaux).reduce((a, b) => a + b, 0);
+  $('progression').hidden = !r;
+  if (r) {
+    $('progression').querySelector('.ok').style.width = `${(100 * totaux.ok) / total}%`;
+    $('progression').querySelector('.alerte').style.width = `${(100 * totaux.alerte) / total}%`;
+    $('progression-texte').textContent = `${totaux.ok} sans écart · ${totaux.alerte} en alerte · ${totaux.manuel} à vérifier vous-même, sur ${total}`;
+  }
+  $('compte-exigences').textContent = r ? `${totaux.alerte + totaux.manuel}` : '';
 }
 
 function ligneOccurrence(o, x) {
@@ -445,13 +560,15 @@ function ligneOccurrence(o, x) {
       : el('span', { class: 'extrait' }, o.i !== null ? `¶ ${o.i + 1} · ${o.extrait}` : o.extrait))
     : null;
   const zone = el('div', {});
-  return el('li', { class: `occurrence ${o.niveau}` },
+  return el('li', { class: `occurrence ${o.niveau}${o.ignoree ? ' ignoree' : ''}` },
     el('p', { class: 'message' }, o.message),
     extrait,
     el('span', { class: 'gestes' },
-      o.corrections?.length && enWord() ? (() => { const b = boutonCorriger(o.corrections, 'Corriger', zone); b.className = 'ignorer'; return b; })() : null,
-      o.plage && enWord() ? el('button', { class: 'ignorer', type: 'button', title: 'Sélectionner les références de la catégorie pour le tri de Word', onclick: () => selectionnerPourTri(o.plage) }, 'Sélectionner pour trier') : null,
-      el('button', { class: 'ignorer', type: 'button', title: 'Ne plus signaler cette occurrence pour ce document', onclick: () => ignorer(o.cle) }, 'Ignorer')),
+      o.corrections?.length && enWord() && !o.ignoree ? (() => { const b = boutonCorriger(o.corrections, 'Corriger', zone); b.className = 'geste fort'; return b; })() : null,
+      o.plage && enWord() ? el('button', { class: 'geste fort', type: 'button', title: 'Sélectionner les références de la catégorie pour le tri de Word', onclick: () => selectionnerPourTri(o.plage) }, 'Sélectionner pour trier') : null,
+      o.ignoree
+        ? el('button', { class: 'geste fort', type: 'button', title: 'Signaler de nouveau cette occurrence', onclick: () => retablir(o.cle) }, 'Rétablir')
+        : el('button', { class: 'geste', type: 'button', title: 'Ne plus signaler cette occurrence pour ce document', onclick: () => ignorer(o.cle) }, 'Ignorer')),
     zone);
 }
 
@@ -461,6 +578,15 @@ async function aller(i) {
   } catch (e) {
     statut(`Passage non sélectionné : ${e.message}`, true);
   }
+}
+
+function retablir(cle) {
+  const liste = new Set(etat.ignores[etat.cleDoc] || []);
+  liste.delete(cle);
+  etat.ignores[etat.cleDoc] = [...liste];
+  stockage.ecrire({ ignores: etat.ignores });
+  if (!liste.size && etat.filtre === 'ignorees') etat.filtre = 'tous';
+  afficher();
 }
 
 function ignorer(cle) {
