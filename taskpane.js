@@ -7,11 +7,11 @@ import { controler } from './moteur/moteur.js';
 import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
-const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Propreté' };
-const VERSION = '0.5.0';
+const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Typographie', R: 'Restes de travail' };
+const VERSION = '0.6.0';
 
 const etat = {
-  profil: 'notice', mode: 'redaction', termes: [], ignores: {},
+  profil: 'notice', termes: [], ignores: {},
   regles: null, doc: null, cleDoc: null, dansWord: false, nomDoc: '', ouvertes: new Set(), filtre: 'tous', deplies: new Set(),
 };
 
@@ -38,9 +38,9 @@ async function demarrer() {
   etat.regles = regles;
   const s = stockage.lire();
   Object.assign(etat, {
-    profil: s.profil || 'notice', mode: s.mode || 'redaction', termes: s.termes || [], ignores: s.ignores || {},
+    profil: s.profil || 'notice', termes: s.termes || [], ignores: s.ignores || {},
   });
-  for (const nom of ['profil', 'mode']) {
+  for (const nom of ['profil']) {
     document.querySelector(`input[name="${nom}"][value="${etat[nom]}"]`).checked = true;
     document.querySelectorAll(`input[name="${nom}"]`).forEach((r) => r.addEventListener('change', () => {
       etat[nom] = r.value;
@@ -171,7 +171,7 @@ function forme(i) {
 function alertesPourCalibrage() {
   if (!etat.dernier) return null;
   const r = etat.dernier;
-  const lignes = [`Garde-fou ${VERSION} · ${r.profil} · ${r.mode} · ${r.source} · ${etat.doc.diagnostic?.paragraphes} paragraphes · ${r.comptes.bloquants} bloquant(s), ${r.comptes.avertissements} à vérifier`];
+  const lignes = [`Garde-fou ${VERSION} · ${r.profil} · ${r.source} · ${etat.doc.diagnostic?.paragraphes} paragraphes · ${r.comptes.bloquants} bloquant(s), ${r.comptes.avertissements} à vérifier, ${r.comptes.restes} reste(s) de travail`];
   for (const x of r.resultats) {
     if (!x.occurrences.length) continue;
     lignes.push('', `${x.regle.id} ${x.regle.titre} (${x.occurrences.length})`);
@@ -288,19 +288,22 @@ function el(balise, attrs = {}, ...enfants) {
 function afficher(duree) {
   const doc = structuredClone(etat.doc);
   const ignores = new Set(etat.ignores[etat.cleDoc] || []);
-  const r = controler(doc, etat.regles, { profil: etat.profil, mode: etat.mode, termes: etat.termes, ignores });
+  const r = controler(doc, etat.regles, { profil: etat.profil, termes: etat.termes, ignores });
   etat.dernier = r;
 
   const d = doc.diagnostic || {};
   const temps = duree ? ` en ${(duree / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s` : '';
   statut(`${etat.nomDoc} · ${doc.source === 'docx' ? 'fichier .docx' : 'document ouvert'} · ${d.paragraphes} paragraphes${temps} · ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`);
 
-  const feux = { rouge: 'Points bloquants', orange: 'Points à vérifier', vert: 'Aucun écart trouvé' };
+  const feux = { rouge: 'Points bloquants', orange: r.comptes.bloquants || r.comptes.avertissements ? 'Points à vérifier' : 'Restes de travail à nettoyer', vert: 'Prêt pour l\'export PDF' };
   $('accueil').hidden = true;
   $('synthese').hidden = false;
   $('feu').className = `feu ${r.feu}`;
   $('feu-texte').textContent = feux[r.feu];
-  $('contexte').textContent = `${etat.profil === 'notice' ? 'Notice' : 'Mémoire'} · ${etat.mode === 'depot' ? 'dépôt' : 'rédaction'}`;
+  $('contexte').textContent = etat.profil === 'notice' ? 'Demande d\'agrément' : 'Mémoire';
+  $('rappel-restes').hidden = !r.comptes.restes;
+  $('rappel-restes').textContent = `À nettoyer avant l'export PDF : ${r.comptes.restes} reste(s) de travail (consignes du gabarit, repères, TODO, commentaires, modifications suivies). Voir →`;
+  $('filtre-restes').hidden = !r.comptes.restes;
   $('n-bloquants').textContent = r.comptes.bloquants;
   $('n-avertissements').textContent = r.comptes.avertissements;
   $('n-corrigeables').textContent = r.resultats.reduce((n, x) => n + x.occurrences.filter((o) => o.corrections?.length).length, 0);
@@ -308,7 +311,7 @@ function afficher(duree) {
   $('compte-ignores').textContent = r.comptes.ignores ? `${r.comptes.ignores} occurrence(s) ignorée(s)` : '';
   $('pied-alertes').hidden = false;
   $('filtres').hidden = false;
-  const n = r.comptes.bloquants + r.comptes.avertissements;
+  const n = r.comptes.bloquants + r.comptes.avertissements + r.comptes.restes;
   $('compte-alertes').textContent = n || '';
   $('compte-alertes').className = `compteur ${r.comptes.bloquants ? 'bloquant' : n ? 'avertissement' : ''}`;
   afficherAlertes(r);
@@ -327,9 +330,10 @@ function afficher(duree) {
 /** Garde une occurrence selon le filtre courant. */
 function garder(o) {
   switch (etat.filtre) {
-    case 'bloquant': return o.niveau === 'bloquant';
-    case 'avertissement': return o.niveau !== 'bloquant';
+    case 'bloquant': return o.niveau === 'bloquant' && !o.reste;
+    case 'avertissement': return o.niveau !== 'bloquant' && !o.reste;
     case 'corrigeable': return !!o.corrections?.length;
+    case 'restes': return o.reste;
     case 'ignorees': return true;
     default: return true;
   }
@@ -351,7 +355,7 @@ function afficherAlertes(r) {
     const res = r.resultats.filter((x) => x.regle.categorie === cat);
     res.filter((x) => !x.occurrences.length).forEach((x) => conformes.push(x));
     const source = (x) => (etat.filtre === 'ignorees' ? (x.ignorees || []).map((o) => ({ ...o, ignoree: true })) : x.occurrences);
-    const avec = res.map((x) => ({ ...x, occurrences: source(x).filter(garder) })).filter((x) => x.occurrences.length);
+    const avec = res.map((x) => ({ ...x, occurrences: source(x).map((o) => ({ ...o, reste: cat === 'R' })).filter(garder) })).filter((x) => x.occurrences.length);
     if (!avec.length) continue;
     const total = avec.reduce((k, x) => k + x.occurrences.length, 0);
     blocs.push(el('h2', { class: 'categorie' }, el('span', {}, nomCat), el('span', {}, `${total}`)));
@@ -392,13 +396,13 @@ function carteRegle(x) {
   const plus = n > occurrences.length
     ? el('button', { type: 'button', class: 'plus', onclick: () => { etat.deplies.add(x.regle.id); afficherAlertes(etat.dernier); } }, `Afficher les ${n - occurrences.length} autres`)
     : null;
-  const carte = el('details', { class: `regle ${niveau}` },
+  const carte = el('details', { class: `regle ${x.regle.categorie === 'R' ? 'reste' : niveau}` },
     el('summary', {},
       CHEVRON(),
       el('span', { class: 'id' }, x.regle.id),
       el('span', { class: 'nom' }, x.regle.titre),
       corrigeables ? el('span', { class: 'badge auto', title: 'Corrigeables dans Word' }, `✓ ${corrigeables}`) : null,
-      el('span', { class: `badge ${niveau}`, title: niveau === 'bloquant' ? 'Bloquants' : 'À vérifier' }, `${n}`)),
+      el('span', { class: `badge ${x.regle.categorie === 'R' ? 'avertissement' : niveau}`, title: x.regle.categorie === 'R' ? 'À nettoyer avant l\'export' : niveau === 'bloquant' ? 'Bloquants' : 'À vérifier' }, `${n}`)),
     el('div', { class: 'corps' },
       el('p', { class: 'base' },
         el('span', { class: `etiquette ${x.regle.nature === 'exigence' ? '' : 'preference'}` }, x.regle.nature === 'exigence' ? 'Note du jury' : 'Préférence'),
@@ -560,7 +564,7 @@ function ligneOccurrence(o, x) {
       : el('span', { class: 'extrait' }, o.i !== null ? `¶ ${o.i + 1} · ${o.extrait}` : o.extrait))
     : null;
   const zone = el('div', {});
-  return el('li', { class: `occurrence ${o.niveau}${o.ignoree ? ' ignoree' : ''}` },
+  return el('li', { class: `occurrence ${o.reste ? 'avertissement' : o.niveau}${o.ignoree ? ' ignoree' : ''}` },
     el('p', { class: 'message' }, o.message),
     extrait,
     el('span', { class: 'gestes' },

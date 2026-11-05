@@ -17,12 +17,12 @@ test('gabarit du mémoire : numéros automatiques lus depuis numbering.xml', asy
 });
 
 test('gabarit de la demande : aucune erreur de structure en rédaction, hors contenu à écrire', async () => {
-  const r = await lancer(await docx('fixtures/gabarit-demande-agrement.docx'), { profil: 'notice', mode: 'redaction' });
+  const r = await lancer(await docx('fixtures/gabarit-demande-agrement.docx'), { profil: 'notice' });
   for (const id of ['A06', 'A09', 'A14', 'A19']) assert.ok(!r.ids.has(id), `${id} inattendu :\n${r.lignes.join('\n')}`);
 });
 
-test('notice fictive en mode dépôt : chaque écart semé est trouvé', async () => {
-  const r = await lancer(await docx('fixtures/notice-fictive.docx'), { profil: 'notice', mode: 'depot', termes: ['Fictif Durand'] });
+test('notice fictive : chaque écart semé est trouvé', async () => {
+  const r = await lancer(await docx('fixtures/notice-fictive.docx'), { profil: 'notice', termes: ['Fictif Durand'] });
   assert.equal(r.feu, 'rouge');
   contient(r, 'A06', 'proscrite');
   contient(r, 'A07', '« 2 » attendu');
@@ -54,24 +54,28 @@ test('notice fictive en mode dépôt : chaque écart semé est trouvé', async (
   assert.ok(!r.ids.has('A01') && !r.ids.has('A15'));
 });
 
-test('notice fictive en mode rédaction : restes de travail hors champ, typographie contrôlée, feu non vert', async () => {
-  const r = await lancer(await docx('fixtures/notice-fictive.docx'), { profil: 'notice', mode: 'redaction', termes: ['Fictif Durand'] });
-  for (const id of ['F01', 'F02']) assert.ok(!r.ids.has(id), `${id} hors du mode rédaction`);
-  for (const id of ['F04', 'F05', 'F06', 'F07']) assert.ok(r.ids.has(id), `${id} attendu en rédaction aussi`);
-  assert.ok(r.ids.has('A06') && r.ids.has('A16'));
+test('restes de travail : catégorie à part, hors des bloquants, feu non vert', async () => {
+  const r = await lancer(await docx('fixtures/notice-fictive.docx'), { profil: 'notice', termes: ['Fictif Durand'] });
+  const restes = r.resultats.filter((x) => x.regle.categorie === 'R').reduce((n, x) => n + x.occurrences.length, 0);
+  assert.ok(restes > 0 && r.comptes.restes === restes);
+  const bloquantsHorsRestes = r.resultats.filter((x) => x.regle.categorie !== 'R')
+    .reduce((n, x) => n + x.occurrences.filter((o) => o.niveau === 'bloquant').length, 0);
+  assert.equal(r.comptes.bloquants, bloquantsHorsRestes);
+  for (const id of ['F04', 'F05', 'F06', 'F07']) assert.ok(r.ids.has(id), `${id} attendu`);
+  assert.notEqual(r.feu, 'vert');
 });
 
 test('ignorer une occurrence la retire du compte', async () => {
   const d1 = await docx('fixtures/notice-fictive.docx');
-  const r1 = await lancer(d1, { profil: 'notice', mode: 'depot', termes: ['Fictif Durand'] });
+  const r1 = await lancer(d1, { profil: 'notice', termes: ['Fictif Durand'] });
   const o = r1.resultats.find((x) => x.regle.id === 'A16').occurrences[0];
-  const r2 = await lancer(await docx('fixtures/notice-fictive.docx'), { profil: 'notice', mode: 'depot', termes: ['Fictif Durand'], ignores: new Set([o.cle]) });
+  const r2 = await lancer(await docx('fixtures/notice-fictive.docx'), { profil: 'notice', termes: ['Fictif Durand'], ignores: new Set([o.cle]) });
   assert.equal(r2.comptes.ignores, 1);
   assert.equal(r2.comptes.bloquants, r1.comptes.bloquants - 1);
 });
 
 test('mémoire fictif : renvois, annexe IA, plan', async () => {
-  const r = await lancer(await docx('fixtures/memoire-fictif.docx'), { profil: 'memoire', mode: 'depot' });
+  const r = await lancer(await docx('fixtures/memoire-fictif.docx'), { profil: 'memoire' });
   contient(r, 'B06', "l'annexe 2, qui n'existe pas");
   contient(r, 'A17', "Usage de l'Intelligence Artificielle");
   contient(r, 'A07', 'Partie 1 : 1 chapitre');
@@ -85,7 +89,7 @@ test('mémoire fictif : renvois, annexe IA, plan', async () => {
 });
 
 test('annexe n° 1 de la charte IA laissée telle que le modèle officiel', async () => {
-  const r = await lancer(await docx('fixtures/annexe-ia-modele.docx'), { profil: 'notice', mode: 'depot' });
+  const r = await lancer(await docx('fixtures/annexe-ia-modele.docx'), { profil: 'notice' });
   contient(r, 'A17', 'Exemple du modèle encore présent');
   contient(r, 'A17', 'Date non renseignée');
   contient(r, 'A17', 'Nom – prénom non renseignés');
@@ -93,7 +97,7 @@ test('annexe n° 1 de la charte IA laissée telle que le modèle officiel', asyn
 });
 
 test('plan : numérotation reprise à 1 et continue mélangées', async () => {
-  const r = await lancer(await docx('fixtures/plan-numerotation-melangee.docx'), { profil: 'notice', mode: 'depot' });
+  const r = await lancer(await docx('fixtures/plan-numerotation-melangee.docx'), { profil: 'notice' });
   contient(r, 'A07', 'un seul usage pour tout le plan');
   assert.equal(r.lignes.filter((l) => l.includes('un seul usage')).length, 1);
 });

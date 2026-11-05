@@ -44,7 +44,7 @@ function installerFauxWord(modele) {
 }
 
 test('Office.js (imitation) : mêmes constats que sur le .docx', async () => {
-  const options = { profil: 'notice', mode: 'depot', termes: ['Fictif Durand'] };
+  const options = { profil: 'notice', termes: ['Fictif Durand'] };
   const viaDocx = await lancer(await docx('fixtures/notice-fictive.docx'), options);
   const selection = installerFauxWord(await docx('fixtures/notice-fictive.docx'));
   const doc = await lireWord();
@@ -58,7 +58,7 @@ test('Office.js (imitation) : mêmes constats que sur le .docx', async () => {
 });
 
 test('Office.js (imitation) : mémoire, numéros des titres et renvois cliquables', async () => {
-  const options = { profil: 'memoire', mode: 'depot' };
+  const options = { profil: 'memoire' };
   const viaDocx = await lancer(await docx('fixtures/memoire-fictif.docx'), options);
   installerFauxWord(await docx('fixtures/memoire-fictif.docx'));
   const viaWord = await lancer(await lireWord(), options);

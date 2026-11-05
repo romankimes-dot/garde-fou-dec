@@ -10,7 +10,7 @@ Accueil, Compléments, « Plus de compléments », « Mes compléments », « Ch
 
 ## Utiliser
 
-- **Document** : Notice ou Mémoire ; **Mode** : Rédaction ou Dépôt (les exigences deviennent bloquantes, les restes de travail sont contrôlés).
+- **Document** : demande d'agrément (notice) ou mémoire. Un seul contrôle : exigences de la Note bloquantes, préférences et typographie à vérifier, restes de travail (consignes, repères, TODO, commentaires, révisions) comptés à part, à nettoyer avant l'export PDF.
 - **Contrôler ce document** : lit le document ouvert, mise en page comprise. Un clic sur un extrait sélectionne le passage. **Contrôler un fichier .docx** : même contrôle sur une copie.
 - Chaque règle : sa base (Note du jury, page citée, ou préférence), « Comment corriger », et dans Word les boutons **Corriger** (aperçu avant/après pour les changements de texte) et **Sélectionner pour trier** (tri de la bibliographie par Accueil, Trier).
 - **Exigences de la Note** : toutes les exigences, contrôlées ou à vérifier soi-même, dépôt compris, et les codes du sujet.
@@ -43,7 +43,7 @@ Le PDF exporté reste la référence pour la pagination exacte (`scripts/mise-en
 | Chemin | Rôle |
 | --- | --- |
 | `manifest.xml`, `taskpane.*`, `icones/` | Complément et volet |
-| `regles.json` | Règles (base, niveau par mode, « comment corriger »), paramètres, exigences de la Note, codes du sujet |
+| `regles.json` | Règles (base, niveau, « comment corriger »), paramètres, exigences de la Note, codes du sujet |
 | `consignes.json` | Consignes des gabarits, exclues des contrôles (`python3 outils/extraire-consignes.py DOSSIER_DES_GABARITS`) |
 | `moteur/` | Structure (pièces, plan, annexes) et contrôles |
 | `sources/` | Lecture du document ouvert (Office.js) ou d'un .docx ; corrections dans Word |

@@ -19,14 +19,10 @@
         <p class="sous-titre">Contrôle de forme, sans IA · Note du jury du 6 juillet 2026</p>
       </div>
     </div>
-    <div class="reglages-rapides" aria-label="Document et mode">
+    <div class="reglages-rapides" aria-label="Document">
       <div class="segment" role="radiogroup" aria-label="Document">
-        <label><input type="radio" name="profil" value="notice" checked><span>Notice</span></label>
+        <label><input type="radio" name="profil" value="notice" checked><span>Demande d'agrément</span></label>
         <label><input type="radio" name="profil" value="memoire"><span>Mémoire</span></label>
-      </div>
-      <div class="segment" role="radiogroup" aria-label="Mode">
-        <label title="Structure, conformité, typographie"><input type="radio" name="mode" value="redaction" checked><span>Rédaction</span></label>
-        <label title="Tout, restes de travail compris ; les exigences deviennent bloquantes"><input type="radio" name="mode" value="depot"><span>Dépôt</span></label>
       </div>
     </div>
     <div class="actions">
@@ -50,7 +46,7 @@
     <section id="panneau-alertes" role="tabpanel" aria-labelledby="onglet-alertes">
       <div id="accueil" class="vide">
         <p class="vide-titre">Aucun contrôle pour l'instant</p>
-        <p>Choisir le document et le mode, puis « Contrôler ce document ». Le texte ne quitte pas Word ; le document n'est modifié que sur un clic « Corriger », annulable par Ctrl+Z.</p>
+        <p>Choisir le document, puis « Contrôler ce document ». Le texte ne quitte pas Word ; le document n'est modifié que sur un clic « Corriger », annulable par Ctrl+Z.</p>
       </div>
 
       <section id="synthese" class="synthese" hidden>
@@ -61,6 +57,7 @@
           <button type="button" class="tuile corrigeable" data-filtre="corrigeable"><span class="nombre" id="n-corrigeables">0</span><span>corrigeables</span></button>
         </div>
         <div id="bandeau-profil"></div>
+        <button type="button" id="rappel-restes" class="rappel-restes" data-filtre="restes" hidden></button>
       </section>
       <div id="retour" class="retour" role="status" hidden></div>
 
@@ -69,6 +66,7 @@
         <button type="button" data-filtre="bloquant" aria-pressed="false">Bloquants</button>
         <button type="button" data-filtre="avertissement" aria-pressed="false">À vérifier</button>
         <button type="button" data-filtre="corrigeable" aria-pressed="false">Corrigeables</button>
+        <button type="button" data-filtre="restes" aria-pressed="false" id="filtre-restes">Restes de travail</button>
         <button type="button" data-filtre="ignorees" aria-pressed="false" id="filtre-ignorees">Ignorées</button>
         <span class="espace"></span>
         <button type="button" id="tout-replier" class="discret-bouton" title="Replier toutes les règles">Replier</button>
