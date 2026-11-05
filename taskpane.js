@@ -7,7 +7,7 @@ import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Propreté' };
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 
 const etat = {
   profil: 'notice', mode: 'redaction', termes: [], ignores: {},
@@ -74,6 +74,15 @@ async function demarrer() {
     stockage.ecrire({ ignores: etat.ignores });
     if (etat.doc) afficher();
   });
+  $('copier-alertes').addEventListener('click', async () => {
+    const texte = alertesPourCalibrage();
+    if (!texte) { statut('Lancer d\'abord un contrôle.'); return; }
+    $('diagnostic').textContent = texte;
+    $('diagnostic').hidden = false;
+    try { await navigator.clipboard.writeText(texte); statut('Alertes copiées, sans extrait du document : les relire avant de les transmettre.'); } catch {
+      statut('Alertes affichées ci-dessous : les sélectionner et les copier.');
+    }
+  });
   $('copier-diagnostic').addEventListener('click', async () => {
     const d = { complement: VERSION, source: etat.doc?.source || null, ...(etat.doc?.diagnostic || {}), erreur: etat.erreur || null };
     const texte = JSON.stringify(d, null, 1);
@@ -83,6 +92,23 @@ async function demarrer() {
       statut('Diagnostic affiché ci-dessous : le sélectionner et le copier.');
     }
   });
+}
+
+/** Alertes sans extrait du document : règle, niveau, message ; termes du cabinet et restes de travail masqués. */
+function alertesPourCalibrage() {
+  if (!etat.dernier) return null;
+  const r = etat.dernier;
+  const lignes = [`Garde-fou ${VERSION} · ${r.profil} · ${r.mode} · ${r.source} · ${etat.doc.diagnostic?.paragraphes} paragraphes · ${r.comptes.bloquants} bloquant(s), ${r.comptes.avertissements} à vérifier`];
+  for (const x of r.resultats) {
+    if (!x.occurrences.length) continue;
+    lignes.push(`${x.regle.id} ${x.regle.titre} (${x.occurrences.length})`);
+    for (const o of x.occurrences) {
+      let m = o.message;
+      if (x.regle.id === 'A16' || x.regle.id === 'F01') m = m.replace(/«[^»]*»/g, '« … »');
+      lignes.push(`  ${o.niveau === 'bloquant' ? '■' : '▲'} ${m}`);
+    }
+  }
+  return lignes.join('\n');
 }
 
 function statut(texte, erreur = false) {
@@ -149,6 +175,7 @@ function afficher(duree) {
   const doc = structuredClone(etat.doc);
   const ignores = new Set(etat.ignores[etat.cleDoc] || []);
   const r = controler(doc, etat.regles, { profil: etat.profil, mode: etat.mode, termes: etat.termes, ignores });
+  etat.dernier = r;
 
   const d = doc.diagnostic || {};
   const temps = duree ? ` en ${(duree / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s` : '';
