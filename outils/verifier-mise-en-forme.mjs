@@ -55,7 +55,7 @@ const corps = res.blocs.filter((b) => !b.garde && b.tableau === null).map((b) =>
 let k = 0;
 const perdus = [];
 for (const l of plan.lignes) {
-  if (l.omis || l.champ || l.tableau !== undefined || !l.texte.trim()) continue;
+  if (l.omis || l.champ || l.tableau !== undefined || l.planLigne || l.tableauTexte || l.repere || !l.texte.trim()) continue;
   const t = norme(l.texte);
   const j = corps.findIndex((c, n) => n >= k && (c === t || c.endsWith(t)));
   if (j < 0) perdus.push(l); else k = j + 1;
@@ -70,7 +70,8 @@ if (motsResultat < motsSource * 0.98) defauts.push(`Résultat plus court que la 
 
 // 2. Styles : chaque titre prévu porte le style attendu.
 const NOMS = { Titrehorsplan: 'titre hors plan', Titrenotice: 'titre notice', 'Titrecatégorie': 'titre catégorie', Titreannexe: 'titre annexe',
-  Soustitrenotice: 'sous-titre notice', Heading1: 'heading 1', Heading2: 'heading 2', Heading3: 'heading 3', Heading4: 'heading 4', Normal: 'normal' };
+  Soustitrenotice: 'sous-titre notice', Heading1: 'heading 1', Heading2: 'heading 2', Heading3: 'heading 3', Heading4: 'heading 4', Normal: 'normal',
+  Caption: 'caption', Source: 'source', Referencebiblio: 'référence bibliographique', Listetirets: 'liste tirets', Consigne: 'consigne' };
 const parTexte = new Map(res.blocs.filter((b) => !b.garde).map((b) => [norme(b.texte), b]));
 const malStyles = plan.lignes.filter((l) => l.style && l.style !== 'Normal').filter((l) => {
   const b = parTexte.get(norme(l.texte)) || res.blocs.find((x) => norme(x.texte).endsWith(norme(l.texte)));
@@ -82,9 +83,14 @@ for (const b of res.blocs) if (b.style && !b.garde) comptes[b.style] = (comptes[
 remarques.push(`Styles du résultat : ${Object.entries(comptes).map(([s, n]) => `${s} ${n}`).join(' · ')}.`);
 
 // 3. Tableaux.
+// Tableaux attendus : ceux de la source, plus les tableaux tapés en « | » et chaque groupe de lignes de plan (un tableau par plan).
 const tableaux = (d) => new Set(d.blocs.filter((b) => b.tableau !== null && !b.garde).map((b) => b.tableau)).size;
-if (tableaux(res) !== tableaux(doc)) defauts.push(`Tableaux : ${tableaux(doc)} dans la source, ${tableaux(res)} dans le résultat.`);
-else remarques.push(`Tableaux repris : ${tableaux(res)}.`);
+const visibles = plan.lignes.filter((l) => !l.omis);
+const groupesPlan = visibles.filter((l, k) => l.planLigne && !(visibles[k - 1] || {}).planLigne).length;
+const tapes = visibles.filter((l) => l.tableauTexte).length;
+const attendus = tableaux(doc) + groupesPlan + tapes;
+if (tableaux(res) !== attendus) defauts.push(`Tableaux : ${attendus} attendus (${tableaux(doc)} dans la source, ${tapes} tapé(s) en « | », ${groupesPlan} plan(s)), ${tableaux(res)} dans le résultat.`);
+else remarques.push(`Tableaux : ${tableaux(res)} (${tableaux(doc)} repris, ${tapes} tapé(s) en « | », ${groupesPlan} plan(s)).`);
 
 // 4. Page de garde et restes du gabarit.
 const garde = res.blocs.filter((b) => b.garde).map((b) => b.texte).join(' | ');

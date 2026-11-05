@@ -388,6 +388,15 @@ const lirePages = (t) => {
   return m.length ? Number(m[m.length - 1][1].replace(',', '.')) : null;
 };
 const TYPE_LIGNE = /^(introduction|conclusion|partie|chapitre|section|§|paragraphe)(?![a-z])/;
+// « Introduction de la partie (0,5 page) », « Conclusion partielle du chapitre » : sous-ligne du niveau au-dessus
+// (Note, p. 15), comptée dans la somme de ses pages ; ni l'introduction ni la conclusion du mémoire.
+const PARTIEL = /^(introduction|conclusion)(?: partielle| generale)? (?:de la|du|de) (partie|chapitre)\b/;
+function lirePlanOuPartiel(intitule) {
+  const n = normaliser(intitule).replace(/^[•▪◦-]\s*/, '');
+  const m = PARTIEL.exec(n);
+  if (m) return { mot: m[1], niveau: m[2] === 'partie' ? 2 : 3, numero: null, decimal: false, brut: '', partiel: true };
+  return lirePlan(intitule);
+}
 
 function A12(doc, S, { p }) {
   const z = S.zone('plan-det');
@@ -402,12 +411,13 @@ function A12(doc, S, { p }) {
     const m = TYPE_LIGNE.exec(n);
     if (!m) continue;
     const pg = lirePages(b.intitule);
-    if (m[1] === 'introduction') intro = b;
-    if (m[1] === 'conclusion' && !/partielle/.test(n)) conclusion = b;
+    const pl = lirePlanOuPartiel(b.intitule);
+    const partiel = !!(pl && pl.partiel);
+    if (m[1] === 'introduction' && !partiel) intro = b;
+    if (m[1] === 'conclusion' && !partiel) conclusion = b;
     if (pg === null) sansPages.push({ b, type: m[1] });
-    const pl = lirePlan(b.intitule);
     valeurs.push({ b, pl, pg, type: m[1] });
-    if (pg !== null && (m[1] === 'introduction' || m[1] === 'partie' || (m[1] === 'conclusion' && b === conclusion))) total += pg;
+    if (pg !== null && !partiel && (m[1] === 'introduction' || m[1] === 'partie' || (m[1] === 'conclusion' && b === conclusion))) total += pg;
   }
   // Lignes sans pages : une alerte par ligne, ou une seule par niveau au-delà de trois.
   const parType = new Map();
@@ -462,9 +472,9 @@ function A13(doc, S) {
   if (!z) return { occurrences: [occ(null, 'Plan synthétique absent (titre « Plan synthétique » non trouvé).')], infos: [] };
   const o = [];
   for (const b of lignesDeZone(S, z)) {
-    const pl = lirePlan(b.intitule);
+    const pl = lirePlanOuPartiel(b.intitule);
     if (!pl) continue;
-    if (pl.niveau > 2) o.push(occ(b, 'Le plan synthétique ne fait apparaître que les parties et chapitres.'));
+    if (pl.niveau > 2 || (pl.partiel && pl.niveau === 3)) o.push(occ(b, 'Le plan synthétique ne fait apparaître que les parties et chapitres.'));
     else if (lirePages(b.intitule) === null) o.push(occ(b, 'Nombre prévisionnel de pages absent.'));
   }
   return { occurrences: o, infos: [] };
