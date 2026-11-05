@@ -3,7 +3,6 @@
 // chacune s'annule par Ctrl+Z dans Word. Un paragraphe modifié depuis le contrôle est laissé tel quel.
 
 const NBSP = '\u00a0';
-const W = { matchWildcards: true };
 const ACCENTS = { Ere: 'Ère' }; // sinon : E initial → É
 
 export const LIBELLES = {
@@ -56,16 +55,39 @@ export function apercu(c, bloc) {
   }
 }
 
+/**
+ * Remplacements par le contexte : chaque passage à corriger est cherché avec ses voisins (« n : » plutôt que « : »),
+ * sans espace en tête ni en fin de chaîne et sans caractères génériques, que Word en ligne refuse.
+ */
+function parContexte(t, motif, transformer) {
+  const vus = new Map();
+  let fin = -1; // passages qui se chevauchent : le suivant attend la passe suivante
+  for (const m of t.matchAll(motif)) {
+    let a = m.index;
+    let b = m.index + m[0].length;
+    for (let k = 0; k < 3 && a > 0; k++) a--;
+    while (a > 0 && /\s/.test(t[a])) a--;
+    for (let k = 0; k < 3 && b < t.length; k++) b++;
+    while (b < t.length && /\s/.test(t[b - 1])) b++;
+    const cherche = t.slice(a, b);
+    if (/^\s|\s$|\^/.test(cherche) || cherche.length > 250 || a < fin) continue;
+    fin = b;
+    const debut = m.index - a;
+    const remplace = cherche.slice(0, debut) + transformer(m) + cherche.slice(debut + m[0].length);
+    if (remplace !== cherche) vus.set(cherche, remplace);
+  }
+  return [...vus].map(([cherche, remplace]) => ({ cherche, remplace: () => remplace }));
+}
+
 /** Recherches et remplacements dans un paragraphe. */
 function remplacements(c, bloc, parametres) {
   const t = bloc.texte;
   switch (c.type) {
-    // Recherches en mode « caractères génériques » : l'espace est écrite [ ], jamais en tête ou en fin de chaîne.
     case 'insecables':
       return [
-        ...[':', ';', '\\!', '\\?'].map((x) => ({ cherche: `[ ]${x}`, options: W, remplace: (t) => NBSP + t.slice(1) })),
-        { cherche: '«[ ]', options: W, remplace: () => `«${NBSP}` },
-        { cherche: '[ ]»', options: W, remplace: () => `${NBSP}»` },
+        ...parContexte(t, / ([:;!?])/g, (m) => NBSP + m[1]),
+        ...parContexte(t, /« /g, () => `«${NBSP}`),
+        ...parContexte(t, / »/g, () => `${NBSP}»`),
       ];
     case 'guillemets': {
       const pos = pairesGuillemets(t);
@@ -74,23 +96,16 @@ function remplacements(c, bloc, parametres) {
       return [{ cherche: '"', attendu: pos.length, tous: (x, k) => (k % 2 ? `${NBSP}»` : `«${NBSP}`) }];
     }
     case 'espaces':
-      return [{ cherche: '[ ]{2,}', options: W, remplace: () => ' ' }, { cherche: '[ ],', options: W, remplace: () => ',' }];
+      return [...parContexte(t, / {2,}/g, () => ' '), ...parContexte(t, / ,/g, () => ',')];
     case 'unites':
-      return ['%', '€'].flatMap((u) => [
-        { cherche: `[0-9]${u}`, options: W, remplace: (x) => x.slice(0, -1) + NBSP + u },
-        { cherche: `[0-9][ ]${u}`, options: W, remplace: (x) => x[0] + NBSP + u },
-      ]);
+      return parContexte(t, /(\d) ?([%€])/g, (m) => m[1] + NBSP + m[2]);
     case 'accents':
-      return parametres.majuscules_accentuees.map((m) => ({
+      return parametres.majuscules_accentuees.filter((m) => new RegExp(`(?<!\\p{L})${m}(?!\\p{L})`, 'u').test(t)).map((m) => ({
         cherche: m, options: { matchWholeWord: true }, remplace: () => ACCENTS[m] || `É${m.slice(1)}`,
       }));
     case 'numero-simple': {
       const m = /(partie|chapitre|section|paragraphe|§)\s*(\d+(?:\.\d+)+)/i.exec(t);
       return m ? [{ cherche: m[0], premier: true, remplace: () => `${m[1]} ${m[2].split('.').pop()}` }] : [];
-    }
-    case 'sans-numero': {
-      const m = /^\s*(\d+(?:\.\d+)+\.?)\s+/.exec(t);
-      return m ? [{ cherche: `${m[1]}[ ]`, options: W, premier: true, remplace: () => '' }] : [];
     }
     default:
       return [];
@@ -114,6 +129,7 @@ export async function corriger(liste, doc, parametres) {
     let ignorees = 0;
     let corrections = 0;
     let trouves = 0;
+    let dejaCorriges = 0;
     const exemples = [];
     const cibles = [];
     const vus = new Set();
@@ -125,6 +141,9 @@ export async function corriger(liste, doc, parametres) {
       const para = paras.items[c.i];
       const bloc = doc.blocs[c.i];
       if (!para || !bloc || comparable(para.text) !== comparable(bloc.texte)) {
+        // Déjà dans l'état attendu (correction appliquée par un clic précédent) : rien à faire, pas une erreur.
+        const attendu = bloc && AVEC_APERCU.has(c.type) ? apercu(c, bloc) : null;
+        if (para && attendu !== null && comparable(para.text) === comparable(attendu)) { dejaCorriges++; continue; }
         decales++;
         if (exemples.length < 3) exemples.push(`¶ ${c.i + 1} : ${para ? `${para.text.length} caractères lus contre ${bloc ? bloc.texte.length : '?'}` : 'introuvable'}`);
         continue;
@@ -133,8 +152,11 @@ export async function corriger(liste, doc, parametres) {
     }
 
     // Paragraphe entier remplacé (intitulés) : le style de titre de référence est appliqué s'il est connu.
-    for (const { c, para } of cibles.filter((x) => x.c.type === 'renommer')) {
-      para.insertText(c.texte, 'Replace');
+    // Paragraphe entier remplacé : intitulés renommés, numéro retiré d'un sous-titre (texte vérifié par l'aperçu).
+    for (const { c, para, bloc } of cibles.filter((x) => x.c.type === 'renommer' || x.c.type === 'sans-numero')) {
+      const texte = apercu(c, bloc);
+      if (texte === null) continue;
+      para.insertText(texte.trim(), 'Replace');
       if (c.style) para.styleBuiltIn = c.style;
       corrections++;
     }
@@ -145,33 +167,45 @@ export async function corriger(liste, doc, parametres) {
       if (!normal.isNullObject) { normal.font.size = parametres.taille_texte; corrections++; }
     }
 
-    // Recherches dans les paragraphes, en plusieurs passes pour les remplacements répétés.
-    const recherches = cibles.filter((x) => !['renommer', 'style-normal', 'trier'].includes(x.c.type));
-    for (let passe = 0; passe < 4; passe++) {
-      const lots = [];
-      for (const { c, para, bloc } of recherches) {
-        for (const r of remplacements(c, bloc, parametres)) {
-          if (passe > 0 && !r.repeter) continue;
-          const res = para.search(r.cherche, { matchCase: true, ...(r.options || {}) });
-          res.load('items/text');
-          lots.push({ res, r });
+    // Recherches dans les paragraphes.
+    const recherches = cibles.filter((x) => !['renommer', 'sans-numero', 'style-normal', 'trier'].includes(x.c.type));
+    // Un type à la fois, sur le texte réel du paragraphe (relu après chaque passe) : les corrections successives
+    // d'un même paragraphe ne se gênent pas. Une erreur de Word sur un type n'empêche pas les autres.
+    const erreurs = [];
+    for (const type of new Set(recherches.map((x) => x.c.type))) {
+      try {
+        const lesCibles = recherches.filter((x) => x.c.type === type);
+        for (let passe = 0; passe < 4; passe++) {
+          if (passe > 0) { lesCibles.forEach((x) => x.para.load('text')); await context.sync(); }
+          const lots = [];
+          for (const { c, para, bloc } of lesCibles) {
+            const courant = passe > 0 ? { ...bloc, texte: para.text.replace(/[\r\u0007\u000b]/g, ' ') } : bloc;
+            for (const r of remplacements(c, courant, parametres)) {
+              const res = para.search(r.cherche, { matchCase: true, ...(r.options || {}) });
+              res.load('items/text');
+              lots.push({ res, r });
+            }
+          }
+          if (!lots.length) break;
+          await context.sync();
+          let n = 0;
+          for (const { res, r } of lots) {
+            trouves += res.items.length;
+            if (r.attendu !== undefined && (res.items.length !== r.attendu || res.items.some((x) => x.text !== '"'))) { ignorees++; continue; }
+            const items = r.premier ? res.items.slice(0, 1) : res.items;
+            items.forEach((x, k) => { x.insertText(r.tous ? r.tous(x.text, k) : r.remplace(x.text), 'Replace'); n++; });
+          }
+          if (!n) break;
+          await context.sync();
+          corrections += n;
+          if (type === 'guillemets' || type === 'numero-simple' || type === 'accents') break; // une passe suffit
         }
+      } catch (e) {
+        erreurs.push(`${type} : ${e.message}${e.debugInfo?.errorLocation ? ` (${e.debugInfo.errorLocation})` : ''}`);
       }
-      if (!lots.length) break;
-      await context.sync();
-      let n = 0;
-      for (const { res } of lots) trouves += res.items.length;
-      for (const { res, r } of lots) {
-        if (r.attendu !== undefined && (res.items.length !== r.attendu || res.items.some((x) => x.text !== '"'))) { ignorees++; continue; }
-        const items = r.premier ? res.items.slice(0, 1) : res.items;
-        items.forEach((x, k) => { x.insertText(r.tous ? r.tous(x.text, k) : r.remplace(x.text), 'Replace'); n++; });
-      }
-      if (!n) break;
-      await context.sync();
-      corrections += n;
     }
     await context.sync();
-    return { corrections, decales, ignorees, trouves, paragraphes: cibles.length, exemples };
+    return { corrections, decales, ignorees, trouves, dejaCorriges, paragraphes: cibles.length, exemples, erreurs };
   });
 }
 

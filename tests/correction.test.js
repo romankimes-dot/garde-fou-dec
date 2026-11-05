@@ -7,6 +7,7 @@ function imiterWord(textes) {
   let attente = [];
   const items = textes.map((text) => ({ text }));
   for (const p of items) {
+    p.load = () => {};
     p.insertText = (t) => attente.push({ p, debut: 0, fin: p.text.length, n: t });
     p.search = (q, o = {}) => {
       const motif = o.matchWildcards ? q : q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

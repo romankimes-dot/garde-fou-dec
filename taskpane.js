@@ -8,7 +8,7 @@ import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Typographie', R: 'Restes de travail' };
-const VERSION = '0.6.0';
+const VERSION = '0.6.1';
 
 const etat = {
   profil: 'notice', termes: [], ignores: {},
@@ -59,6 +59,8 @@ async function demarrer() {
   }
   $('tout-replier').addEventListener('click', () => { etat.ouvertes.clear(); document.querySelectorAll('.regle[open]').forEach((d) => { d.open = false; }); });
   $('pied').textContent = `Garde-fou ${VERSION}. Règles du ${regles.version}. ${regles.reference}.`;
+  $('version').textContent = `v${VERSION}`;
+  $('version').title = `Garde-fou ${VERSION} · règles du ${regles.version}`;
 
   $('controler-ouvert').hidden = !etat.dansWord;
   if (!etat.dansWord) statut('Hors de Word : seul le contrôle d\'un fichier .docx est possible.');
@@ -249,6 +251,10 @@ async function lireOuvert() {
   } catch (e) {
     etat.erreur = `${e.name || 'Erreur'} : ${e.message}${e.code ? ` (${e.code})` : ''}`;
     statut(`Lecture impossible : ${etat.erreur}.${etat.doc ? ' Les résultats affichés sont ceux de la lecture précédente.' : ''}`, true);
+    if (etat.retour && !etat.retour.erreur) {
+      etat.retour = { ...etat.retour, details: `${etat.retour.details || ''} · Relecture du document impossible : relancer le contrôle avant toute autre correction.` };
+      if (etat.dernier) afficherAlertes(etat.dernier);
+    }
   } finally {
     occupe(false);
   }
@@ -469,21 +475,30 @@ function blocAuto(x) {
 }
 
 async function appliquer(liste) {
+  // Un seul traitement à la fois : un second clic pendant l'application est ignoré.
+  if (etat.enCours) return;
+  etat.enCours = true;
+  document.body.classList.add('correction-en-cours');
   statut('Correction en cours…');
   try {
     const r = await corriger(liste, etat.doc, etat.regles.parametres);
     const details = [`${r.paragraphes} paragraphe(s) traité(s), ${r.trouves} passage(s) trouvé(s)`];
+    if (r.dejaCorriges) details.push(`${r.dejaCorriges} paragraphe(s) déjà corrigé(s)`);
     if (r.decales) details.push(`${r.decales} paragraphe(s) laissé(s) : texte différent de la dernière lecture (${r.exemples.join(' ; ')}) — relancer le contrôle`);
     if (r.ignorees) details.push(`${r.ignorees} cas ambigu(s) laissé(s)`);
-    etat.retour = r.corrections
-      ? { texte: `${r.corrections} correction(s) appliquée(s) dans le document. Ctrl+Z dans Word pour annuler.`, details: details.join(' · ') }
-      : { erreur: true, texte: 'Aucune correction appliquée.', details: `${details.join(' · ')}. Copier le diagnostic (Réglages) et me le transmettre.` };
+    if (r.erreurs?.length) details.push(`refusé par Word : ${r.erreurs.join(' ; ')}`);
+    etat.retour = r.corrections || (r.dejaCorriges && !r.decales)
+      ? { texte: !r.corrections ? 'Déjà corrigé : rien à changer.' : `${r.corrections} correction(s) appliquée(s) dans le document. Ctrl+Z dans Word pour annuler.`, details: details.join(' · ') }
+      : { erreur: true, texte: 'Aucune correction appliquée.', details: `${details.join(' · ')}. Relancer le contrôle ; si le problème persiste, copier le diagnostic (Réglages).` };
     etat.dernierRapport = { liste: liste.length, types: [...new Set(liste.map((c) => c.type))], ...r };
     await lireOuvert();
   } catch (e) {
     etat.retour = { erreur: true, texte: `Correction impossible : ${e.message}`, details: 'Document protégé, en lecture seule, ou fonction absente de cette version de Word. Copier le diagnostic (Réglages).' };
     etat.dernierRapport = { erreur: `${e.name} : ${e.message}${e.code ? ` (${e.code})` : ''}`, debug: e.debugInfo ? JSON.stringify(e.debugInfo).slice(0, 400) : null };
     if (etat.dernier) afficherAlertes(etat.dernier);
+  } finally {
+    etat.enCours = false;
+    document.body.classList.remove('correction-en-cours');
   }
   ouvrirOnglet('alertes');
   $('retour').scrollIntoView({ block: 'nearest' });
