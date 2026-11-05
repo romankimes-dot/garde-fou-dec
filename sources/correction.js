@@ -135,7 +135,8 @@ export function apercu(c, bloc, parametres = null) {
 
 // Comparaison tolérante (espaces, insécables, traits d'union conditionnels, caractères de contrôle) : sert à repérer
 // un paragraphe réellement réécrit depuis le contrôle, pas une différence de lecture.
-const comparable = (t) => (t || '').replace(/[\s  ­​\u0007\u000b\r]/g, '').slice(0, 50).toLowerCase();
+// Texte entier comparé : un mot ajouté n'importe où dans le paragraphe suffit à le laisser.
+const comparable = (t) => (t || '').replace(/[\s  ­​\u0007\u000b\r]/g, '');
 const nettoyer = (t) => (t || '').replace(/[\r\u0007\u000b]/g, ' ');
 
 /** Plus petit passage à remplacer dans le contexte : le caractère changé, ou l'espace et ses deux voisins. */
@@ -152,6 +153,13 @@ function petitPassage(r) {
   return { texte, avant: r.cherche.slice(0, a).split(texte).length - 1, nouveau: texte.slice(0, r.debut - a) + r.nouveau + texte.slice(r.debut - a + r.longueur) };
 }
 
+/** Passage laissé tel quel, pour le retrouver depuis le volet. */
+function noter(compte, t, motif) {
+  if (!compte.lieux) return;
+  const p = t.p || petitPassage(t.r);
+  compte.lieux.push({ i: t.i, motif, passage: [{ texte: t.r.cherche, rang: 0 }, { texte: p.texte, rang: p.avant }] });
+}
+
 /**
  * Applique un remplacement par paragraphe, en une passe (trois allers-retours avec Word pour tous les paragraphes).
  * travaux : [{ para, r, i }]. Rend la liste des remplacements faits, à consigner au journal.
@@ -165,7 +173,7 @@ async function unePasse(context, travaux, compte) {
   await context.sync();
   const etape2 = [];
   for (const t of etape1) {
-    if (!t.res.items.length) { compte.introuvables++; continue; }
+    if (!t.res.items.length) { compte.introuvables++; noter(compte, t, 'introuvable'); continue; }
     const p = petitPassage(t.r);
     const sous = t.res.items[0].search(p.texte, { matchCase: true });
     sous.load(['items/text', ...PROPRIETES.map((x) => `items/font/${x}`)].join(','));
@@ -177,12 +185,13 @@ async function unePasse(context, travaux, compte) {
     // Word rapproche « " » de « “ » et « ' » de « ’ » : seules les occurrences exactes comptent.
     const exacts = t.sous.items.filter((x) => x.text === t.p.texte);
     const cible = exacts[t.p.avant] || exacts[0];
-    if (!cible) { compte.introuvables++; continue; }
+    if (!cible) { compte.introuvables++; noter(compte, t, 'introuvable'); continue; }
     const police = {};
     for (const x of PROPRIETES) police[x] = cible.font[x];
     // Passage de plus d'un caractère en mise en forme mixte (une partie en italique…) : laissé tel quel.
     if (t.p.texte.length > 1 && ['name', 'size', 'italic', 'bold'].some((x) => police[x] === null || police[x] === undefined)) {
       compte.mixtes++;
+      noter(compte, t, 'mise en forme mixte');
       continue;
     }
     const nouveau = cible.insertText(t.p.nouveau || '', 'Replace');
@@ -203,7 +212,7 @@ export async function corriger(liste, doc, parametres) {
     const paras = context.document.body.paragraphs;
     paras.load('items/text');
     await context.sync();
-    const compte = { corrections: 0, decales: 0, dejaCorriges: 0, mixtes: 0, introuvables: 0, ignorees: 0, paragraphes: 0 };
+    const compte = { corrections: 0, decales: 0, dejaCorriges: 0, mixtes: 0, introuvables: 0, ignorees: 0, paragraphes: 0, lieux: [] };
     const exemples = [];
     const erreurs = [];
     const journal = [];
@@ -220,6 +229,7 @@ export async function corriger(liste, doc, parametres) {
         const attendu = bloc ? apercu(c, bloc, parametres) : null;
         if (para && attendu !== null && comparable(para.text) === comparable(attendu)) { compte.dejaCorriges++; continue; }
         compte.decales++;
+        compte.lieux.push({ i: c.i, motif: 'modifié depuis le contrôle', passage: null });
         if (exemples.length < 3) exemples.push(`¶ ${c.i + 1} : ${para ? `${para.text.length} caractères lus contre ${bloc ? bloc.texte.length : '?'}` : 'introuvable'}`);
         continue;
       }
@@ -249,15 +259,7 @@ export async function corriger(liste, doc, parametres) {
 
     if (cibles.some((x) => x.c.type === 'style-normal')) {
       try {
-        const normal = context.document.getStyles().getByNameOrNullObject('Normal');
-        normal.load('isNullObject,font/size');
-        await context.sync();
-        if (!normal.isNullObject) {
-          journal.push({ style: { nom: 'Normal', taille: normal.font.size } });
-          normal.font.size = parametres.taille_texte;
-          await context.sync();
-          compte.corrections++;
-        }
+        await styleNormal(context, parametres.taille_texte, journal, compte);
       } catch (e) {
         erreurs.push(`style Normal : ${e.message}`);
       }
@@ -292,6 +294,41 @@ export async function corriger(liste, doc, parametres) {
   });
 }
 
+/**
+ * Style Normal à la taille du texte. Word en ligne ne donne pas toujours la taille d'un style (« propriété non
+ * disponible ») : la taille d'origine est lue sur les paragraphes. Si le style ne peut pas être changé, les
+ * paragraphes de style Normal sont mis à la taille un par un.
+ */
+async function styleNormal(context, taille, journal, compte) {
+  const paras = context.document.body.paragraphs;
+  paras.load('items/styleBuiltIn,items/style,items/font/size');
+  await context.sync();
+  const normaux = paras.items.map((p, i) => ({ p, i })).filter(({ p }) => p.styleBuiltIn === 'Normal' || /^(normal|standard)$/i.test(p.style || ''));
+  const tailles = normaux.map(({ p }) => p.font.size).filter((x) => typeof x === 'number' && x !== taille);
+  const frequence = (x) => tailles.filter((y) => y === x).length;
+  const ancienne = tailles.length ? tailles.reduce((a, b) => (frequence(b) > frequence(a) ? b : a)) : null;
+  try {
+    const normal = context.document.getStyles().getByNameOrNullObject('Normal');
+    normal.load('isNullObject');
+    await context.sync();
+    if (normal.isNullObject) throw new Error('style Normal introuvable');
+    normal.font.size = taille;
+    await context.sync();
+    journal.push({ style: { nom: 'Normal', taille: ancienne } });
+    compte.corrections++;
+  } catch {
+    // Repli : taille posée sur chaque paragraphe de style Normal qui n'est pas à la bonne taille.
+    for (const { p, i } of normaux) {
+      if (typeof p.font.size === 'number' && p.font.size !== taille) {
+        journal.push({ i, taille: p.font.size });
+        p.font.size = taille;
+        compte.corrections++;
+      }
+    }
+    await context.sync();
+  }
+}
+
 /** Annule les remplacements d'un journal, du dernier au premier, mise en forme comprise. */
 export async function annuler(journal) {
   return Word.run(async (context) => {
@@ -311,6 +348,12 @@ export async function annuler(journal) {
         }
         const para = paras.items[f.i];
         if (!para) { compte.introuvables++; continue; }
+        if (f.taille) {
+          para.font.size = f.taille;
+          await context.sync();
+          compte.corrections++;
+          continue;
+        }
         if (f.entier) {
           const nouveau = para.insertText(f.entier.avant, 'Replace');
           for (const x of PROPRIETES) if (f.entier.police[x] !== null && f.entier.police[x] !== undefined) nouveau.font[x] = f.entier.police[x];

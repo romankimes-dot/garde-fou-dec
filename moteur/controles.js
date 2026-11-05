@@ -16,7 +16,7 @@ const occ = (b, message, opts = {}) => ({
   cibles: opts.cibles || (b ? [b.i] : []),
   corrections: opts.corrections || [],
   plage: opts.plage || null,
-  passage: b && opts.pos ? passage(b, opts.pos) : null,
+  passage: b && opts.pos !== undefined ? passages(b, opts.pos) : null,
 });
 
 /** Morceau du texte à sélectionner dans Word autour d'une position (sans espace en bord, sans caractère spécial). */
@@ -29,6 +29,21 @@ function passage(b, pos) {
   if (i + 40 < b.texte.length) t = t.replace(/\s+\S*$/, '');
   t = t.trim();
   return t.length >= 2 && !/[\^\t]/.test(t) ? t : null;
+}
+/** Passages à essayer pour la sélection : le plus court d'abord (le caractère fautif et ses voisins), puis plus large. */
+function passages(b, pos) {
+  const long = passage(b, pos);
+  const decalage = (b.intitule.length - b.intitule.trimStart().length) + ((b.label || '').replace(/\t/g, ' ').trim() ? (b.label || '').length : 0);
+  const j = b.texte.indexOf(b.intitule.slice(pos, pos + 12).trim());
+  const i = j >= 0 ? j : pos - decalage;
+  const a = Math.max(0, i - 3);
+  const court = i >= 0 ? b.texte.slice(a, i + 5).trim() : '';
+  // Rang de l'occurrence dans le paragraphe : le même morceau peut figurer plus haut.
+  const rang = (t, debut) => (debut > 0 ? b.texte.slice(0, debut + t.length - 1).split(t).length - 1 : 0);
+  const liste = [];
+  if (court.length >= 2 && !/[\^\t]/.test(court)) liste.push({ texte: court, rang: rang(court, b.texte.indexOf(court, a)) });
+  if (long && long !== court) liste.push({ texte: long, rang: 0 });
+  return liste.length ? liste : null;
 }
 const corr = (type, blocs, extra = {}) => blocs.map((b) => ({ type, i: b.i, ...extra }));
 
@@ -387,7 +402,7 @@ function A12(doc, S, { p }) {
   for (const x of sansPages) parType.set(x.type, [...(parType.get(x.type) || []), x.b]);
   for (const [type, blocs] of parType) {
     if (blocs.length <= 3) blocs.forEach((b) => o.push(occ(b, 'Nombre prévisionnel de pages absent sur cette ligne.')));
-    else o.push(occ(blocs[0], `${blocs.length} lignes « ${nomMot(type)} » sans nombre prévisionnel de pages (exigé à chaque niveau).`));
+    else o.push(occ(blocs[0], `${blocs.length} lignes « ${nomMot(type)} » sans nombre prévisionnel de pages (exigé à chaque niveau).`, { cibles: blocs.map((b) => b.i) }));
   }
   if (valeurs.some((v) => v.pl && v.pl.niveau === 3) && !valeurs.some((v) => v.pl && v.pl.niveau === 4)) {
     o.push(occ(z.titre, 'Aucun paragraphe dans le plan détaillé : découpage « Partie/chapitre/section/paragraphe », pages prévisionnelles et outils au niveau des paragraphes (p. 12).'));
@@ -765,7 +780,7 @@ function A19(doc, S, { p }) {
     groupes.get(cle).blocs.push(b);
   }
   for (const g of [...groupes.values()].sort((a, b) => b.blocs.length - a.blocs.length)) {
-    o.push(occ(g.blocs[0], `${g.blocs.length} paragraphe(s) de style « ${g.style} » en ${g.motif} (attendu : taille ${p.taille_texte}, interligne ${cm(p.interligne)}).`));
+    o.push(occ(g.blocs[0], `${g.blocs.length} paragraphe(s) de style « ${g.style} » en ${g.motif} (attendu : taille ${p.taille_texte}, interligne ${cm(p.interligne)}).`, { cibles: g.blocs.map((b) => b.i) }));
   }
   const infos = [`Mise en page : ${mp.sections.length} section(s) lue(s), ${lus} paragraphe(s) de texte courant contrôlé(s) ; tableaux, légendes et notes non contrôlés.`];
   if (mp.sections.some((s) => s.gauche === null)) infos.push('Marges non lues dans ce Word : les contrôler sur le .docx.');

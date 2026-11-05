@@ -9,10 +9,10 @@ import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Typographie', R: 'Restes de travail' };
-const VERSION = '0.9.0';
+const VERSION = '0.10.0';
 
 const etat = {
-  profil: 'notice', termes: [], ignores: {},
+  profil: 'notice', termes: [], ignores: {}, verifiees: {},
   regles: null, doc: null, cleDoc: null, dansWord: false, nomDoc: '', ouvertes: new Set(), filtre: 'tous', deplies: new Set(),
 };
 
@@ -39,7 +39,7 @@ async function demarrer() {
   etat.regles = regles;
   const s = stockage.lire();
   Object.assign(etat, {
-    profil: s.profil || 'notice', termes: s.termes || [], ignores: s.ignores || {},
+    profil: s.profil || 'notice', termes: s.termes || [], ignores: s.ignores || {}, verifiees: s.verifiees || {},
   });
   for (const nom of ['profil']) {
     const choisi = document.querySelector(`input[name="${nom}"][value="${etat[nom]}"]`)
@@ -104,13 +104,14 @@ async function demarrer() {
     if (!etat.cleDoc) return;
     delete etat.ignores[etat.cleDoc];
     stockage.ecrire({ ignores: etat.ignores });
+    if (etat.filtre === 'ignorees') etat.filtre = 'tous';
     if (etat.doc) afficher();
   });
   $('copier-alertes').addEventListener('click', async () => {
     const texte = alertesPourCalibrage();
     if (!texte) { statut('Lancer d\'abord un contrôle.'); return; }
-    $('diagnostic').textContent = texte;
     if (await copier(texte)) { statut('Alertes copiées, sans extrait du document : les relire avant de les transmettre.'); return; }
+    $('diagnostic').textContent = texte;
     $('diagnostic').hidden = false;
     ouvrirOnglet('reglages');
     selectionner($('diagnostic'));
@@ -167,6 +168,9 @@ function selectionner(element) {
 const MOTS_GARDES = new Set(['partie', 'chapitre', 'section', 'paragraphe', 'introduction', 'conclusion', 'annexe', 'p', 'page', 'pages',
   'sommaire', 'notice', 'plan', 'bibliographie', 'synthese', 'outil', 'out']);
 const SANS_FORME = new Set(['A15', 'A16', 'B08', 'F01']);
+// Règles dont les messages citent le document (termes, sigles, restes, titres) : citations masquées.
+const CITATIONS_MASQUEES = new Set(['A16', 'F01', 'B08']);
+const masquerCitations = (t) => t.replace(/«[^»]*»/g, '« … »');
 
 /** Vocabulaire de la Note (titres des sections de la notice et des catégories de la bibliographie) : laissé visible. */
 function motsDeLaNote() {
@@ -185,7 +189,7 @@ function forme(i) {
   const t = ((b.label || '') + b.texte).replace(/\s+/g, ' ').trim()
     .replace(/\p{L}+/gu, (w) => (w.length === 1 || /^[IVXLC]+$/.test(w) || MOTS_GARDES.has(sansAccent(w)) || motsDeLaNote().has(sansAccent(w)) ? w : '…'))
     .replace(/…(?:[\s'’-]*…)+/g, '…')
-    .replace(/\d{4,}|\d[\d\s.]{4,}\d/g, '#');
+    .replace(/\d{3,}|\d[\d\s.]{4,}\d/g, '#');
   return t.length > 70 ? `${t.slice(0, 45)} […] ${t.slice(-20)}` : t;
 }
 
@@ -199,7 +203,7 @@ function alertesPourCalibrage() {
     const groupes = new Map();
     for (const o of x.occurrences) {
       let m = o.message;
-      if (x.regle.id === 'A16' || x.regle.id === 'F01') m = m.replace(/«[^»]*»/g, '« … »');
+      if (CITATIONS_MASQUEES.has(x.regle.id)) m = masquerCitations(m);
       const cle = `${o.niveau === 'bloquant' ? '■' : '▲'} ${m}`;
       if (!groupes.has(cle)) groupes.set(cle, []);
       groupes.get(cle).push(o);
@@ -216,7 +220,7 @@ function alertesPourCalibrage() {
   }
   if (r.infos.length) {
     lignes.push('', 'Informations');
-    for (const x of r.infos) lignes.push(`  ${x.regle} · ${x.regle === 'A16' ? x.texte.replace(/«[^»]*»/g, '« … »') : x.texte}`);
+    for (const x of r.infos) lignes.push(`  ${x.regle} · ${x.regle === 'A16' || /titre approchant/.test(x.texte) ? masquerCitations(x.texte) : x.texte}`);
   }
   if (r.titres?.length) {
     lignes.push('', `Structure lue (${r.titres.length} titres) : ¶ · niveau · rôle · pièce · forme`);
@@ -377,10 +381,13 @@ function afficherAlertes(r) {
   $('retour').hidden = !retour;
   if (retour) {
     $('retour').className = `retour${retour.erreur ? ' erreur' : ''}`;
-    $('retour').replaceChildren(el('strong', {}, retour.texte), retour.details ? el('span', { class: 'details' }, retour.details) : null,
+    const liens = (retour.lieux || []).length && enWord()
+      ? el('span', { class: 'lieux' }, 'Passages laissés : ', ...retour.lieux.slice(0, 12).map((l) => el('button', { type: 'button', class: 'geste', title: l.motif, onclick: () => aller(l.i, l.passage) }, `¶ ${l.i + 1}`)))
+      : null;
+    $('retour').replaceChildren(...[el('strong', {}, retour.texte), retour.details ? el('span', { class: 'details' }, retour.details) : null, liens,
       retour.annulable && etat.journal?.length
         ? el('button', { type: 'button', class: 'geste fort annuler', onclick: annulerDerniere }, 'Annuler la dernière correction')
-        : null);
+        : null].filter(Boolean));
   }
   const conformes = [];
   const blocs = [];
@@ -493,7 +500,7 @@ function boutonCorriger(liste, libelle, conteneur) {
 
 /** Corrections d'une règle, regroupées par type. Hors de Word : simple indication. */
 function blocAuto(x) {
-  const toutes = x.occurrences.flatMap((o) => o.corrections || []);
+  const toutes = x.occurrences.filter((o) => !o.ignoree).flatMap((o) => o.corrections || []);
   if (!toutes.length) return null;
   const parType = new Map();
   for (const c of toutes) parType.set(c.type, [...(parType.get(c.type) || []), c]);
@@ -515,19 +522,32 @@ async function appliquer(liste) {
   document.body.classList.add('correction-en-cours');
   statut('Correction en cours…');
   try {
+    // Document modifié depuis le contrôle (frappe, Ctrl+Z) : aucune correction sur des alertes périmées.
+    if (etat.empreinte) {
+      let e = null;
+      try { e = await empreinte(); } catch { e = null; }
+      if (e && e !== etat.empreinte) {
+        $('perime').hidden = false;
+        etat.journal = null;
+        etat.retour = { erreur: true, texte: 'Aucune correction appliquée : le document a changé depuis le contrôle.', details: 'Relancer le contrôle, puis corriger.' };
+        statut('Document modifié depuis le contrôle : relancer le contrôle.', true);
+        afficherAlertes(etat.dernier);
+        return;
+      }
+    }
     const r = await corriger(liste, etat.doc, etat.regles.parametres);
     const details = [];
     if (r.dejaCorriges) details.push(`${r.dejaCorriges} paragraphe(s) déjà corrigé(s)`);
     if (r.decales) details.push(`${r.decales} paragraphe(s) laissé(s) : texte modifié depuis le contrôle (${r.exemples.join(' ; ')}), relancer le contrôle`);
-    if (r.mixtes) details.push(`${r.mixtes} passage(s) en mise en forme mixte laissé(s) tels quels`);
+    if (r.mixtes) details.push(`${r.mixtes} passage(s) en mise en forme mixte (italique ou gras sur une partie) laissé(s) tels quels : à corriger à la main`);
     if (r.introuvables) details.push(`${r.introuvables} passage(s) introuvable(s)`);
     if (r.ignorees) details.push(`${r.ignorees} cas ambigu(s) laissé(s)`);
     if (r.erreurs?.length) details.push(`refusé par Word : ${r.erreurs.join(' ; ')}`);
     if (r.journal?.length) etat.journal = r.journal;
     etat.retour = r.corrections || (r.dejaCorriges && !r.decales)
-      ? { texte: !r.corrections ? 'Déjà corrigé : rien à changer.' : `${r.corrections} remplacement(s) dans ${r.paragraphes} paragraphe(s), mise en forme conservée.`, details: details.join(' · '), annulable: !!r.journal?.length }
-      : { erreur: true, texte: 'Aucune correction appliquée.', details: `${details.join(' · ') || 'rien trouvé'}. Relancer le contrôle ; si le problème persiste, copier le diagnostic (Réglages).` };
-    etat.dernierRapport = { liste: liste.length, types: [...new Set(liste.map((c) => c.type))], ...r, journal: r.journal?.length };
+      ? { texte: !r.corrections ? 'Déjà corrigé : rien à changer.' : (r.paragraphes ? `${r.corrections} remplacement(s) dans ${r.paragraphes} paragraphe(s), mise en forme conservée.` : `Taille ${etat.regles.parametres.taille_texte} appliquée (${r.corrections} modification(s) de style).`), details: details.join(' · '), annulable: !!r.journal?.length, lieux: r.lieux }
+      : { erreur: true, texte: 'Aucune correction appliquée.', details: `${details.join(' · ') || 'rien trouvé'}. Relancer le contrôle ; si le problème persiste, copier le diagnostic (Réglages).`, lieux: r.lieux };
+    etat.dernierRapport = { liste: liste.length, types: [...new Set(liste.map((c) => c.type))], ...r, journal: r.journal?.length, lieux: r.lieux?.map((l) => `${l.i + 1} ${l.motif}`) };
     await lireOuvert();
     // Montrer la correction dans le document : premier paragraphe corrigé sélectionné.
     const premier = r.journal?.find((f) => f.i !== undefined);
@@ -553,9 +573,10 @@ async function annulerDerniere() {
   try {
     const r = await annuler(etat.journal);
     etat.journal = null;
+    etat.dernierRapport = { ...(etat.dernierRapport || {}), annulation: { retablis: r.corrections, introuvables: r.introuvables, erreurs: r.erreurs } };
     etat.retour = r.erreurs.length || r.introuvables
       ? { erreur: true, texte: `Annulation partielle : ${r.corrections} remplacement(s) rétabli(s).`, details: `${r.introuvables} introuvable(s)${r.erreurs.length ? ` ; ${r.erreurs.join(' ; ')}` : ''} : finir avec Ctrl+Z dans Word.` }
-      : { texte: `Dernière correction annulée : ${r.corrections} remplacement(s) rétabli(s).` };
+      : { texte: `Dernière correction annulée : ${r.corrections} remplacement(s) rétabli(s).`, details: 'Ne pas faire Ctrl+Z ensuite : Word rejouerait la correction annulée.' };
     await lireOuvert();
   } catch (e) {
     etat.retour = { erreur: true, texte: `Annulation impossible : ${e.message}`, details: 'Utiliser Ctrl+Z dans Word.' };
@@ -576,41 +597,88 @@ async function selectionnerPourTri(plage) {
   }
 }
 
-const ICONES = { ok: '✓', alerte: '▲', manuel: '☐', auto: '•', na: '–' };
+const ICONES = { ok: '✓', alerte: '▲', manuel: '☐', auto: '•', na: '–', verifie: '✓' };
+
+const motifDe = (e, id) => {
+  const m = e.motifs?.[id] ?? e.motif;
+  return m ? new RegExp(m, 'i') : null;
+};
+
+/**
+ * Rattache chaque alerte à une seule exigence : celle dont le motif reconnaît le message, sinon celle où la règle
+ * vient en premier, sinon la première (aucune alerte n'est perdue ni comptée deux fois).
+ */
+function rattacher(exigences, r) {
+  const parExigence = new Map(exigences.map((e) => [e, 0]));
+  if (!r) return parExigence;
+  for (const x of r.resultats) {
+    const candidates = exigences.filter((e) => e.regles.includes(x.regle.id));
+    if (!candidates.length) continue;
+    for (const o of x.occurrences) {
+      const note = (e) => {
+        const m = motifDe(e, x.regle.id);
+        if (m) return m.test(o.message) ? 0 : null;
+        return 1 + e.regles.indexOf(x.regle.id);
+      };
+      const notees = candidates.map((e) => ({ e, n: note(e) })).filter((c) => c.n !== null);
+      const choix = notees.length ? notees.reduce((a, c) => (c.n < a.n ? c : a)).e : candidates[0];
+      parExigence.set(choix, parExigence.get(choix) + 1);
+    }
+  }
+  return parExigence;
+}
+
+/** Exigences cochées « vérifié » par le candidat, pour ce document. */
+const cleVerif = () => `${etat.cleDoc || 'aucun'}|${etat.profil}`;
+function basculerVerifie(texte) {
+  const liste = new Set(etat.verifiees[cleVerif()] || []);
+  if (liste.has(texte)) liste.delete(texte); else liste.add(texte);
+  etat.verifiees[cleVerif()] = [...liste];
+  stockage.ecrire({ verifiees: etat.verifiees });
+  afficherExigences();
+}
 
 function afficherExigences() {
   const r = etat.dernier && etat.dernier.profil === etat.profil ? etat.dernier : null;
+  const exigences = etat.regles.exigences.filter((x) => x.profils.includes(etat.profil));
+  const alertes = rattacher(exigences, r);
+  const verifiees = new Set(etat.verifiees[cleVerif()] || []);
   const groupes = new Map();
-  const totaux = { ok: 0, alerte: 0, manuel: 0, auto: 0, na: 0 };
-  for (const e of etat.regles.exigences.filter((x) => x.profils.includes(etat.profil))) {
+  const totaux = { ok: 0, alerte: 0, manuel: 0, auto: 0, na: 0, verifie: 0 };
+  for (const e of exigences) {
     let etatEx = 'manuel';
     let libelle = 'À vérifier vous-même';
     if (e.regles.length) {
-      const res = r ? r.resultats.filter((x) => e.regles.includes(x.regle.id)) : [];
-      // Alertes de la règle qui concernent cette exigence (motif sur le message), pour ne pas compter deux fois.
-      const motif = e.motif ? new RegExp(e.motif, 'i') : null;
-      const n = res.reduce((k, x) => k + x.occurrences.filter((o) => !motif || motif.test(o.message)).length, 0);
-      const nonApplicable = r && !n && r.infos.some((x) => e.regles.includes(x.regle) && /^Non applicable/.test(x.texte));
+      const n = alertes.get(e);
       const ids = e.regles.join(', ');
-      const nonControle = r && r.infos.some((x) => e.regles.includes(x.regle) && /non contr[ôo]l/.test(x.texte));
+      const propres = (x) => e.regles.includes(x.regle) && (!e.motif || new RegExp(e.motif, 'i').test(x.texte));
+      const nonApplicable = r && !n && r.infos.some((x) => propres(x) && /^Non applicable/.test(x.texte));
+      const nonControle = r && !n && r.infos.some((x) => propres(x) && /non contr[ôo]l/.test(x.texte));
+      const res = r ? r.resultats.filter((x) => e.regles.includes(x.regle.id)) : [];
       if (!r) { etatEx = 'auto'; libelle = `Contrôlé · ${ids}`; }
       else if (n) { etatEx = 'alerte'; libelle = `${n} alerte(s) · ${ids}`; }
       else if (nonApplicable) { etatEx = 'na'; libelle = 'Non applicable à ce document'; }
       else if (nonControle) { etatEx = 'manuel'; libelle = `Non contrôlé (pièce introuvable) · ${ids}`; }
       else if (res.length && res.every((x) => x.horsSource)) { etatEx = 'manuel'; libelle = 'Sur le .docx seulement'; }
+      else if (e.manuel) { etatEx = 'manuel'; libelle = `Sans écart · ${ids} · reste à vérifier vous-même`; }
       else { etatEx = 'ok'; libelle = `Sans écart · ${ids}`; }
-      if (e.manuel && etatEx === 'ok') libelle += ' · reste à vérifier';
     }
+    // Partie manuelle cochée par le candidat (seulement sans alerte).
+    const cochable = r && etatEx === 'manuel';
+    if (cochable && verifiees.has(e.texte)) { etatEx = 'verifie'; libelle = `${libelle.replace(/ · reste à vérifier vous-même$|^À vérifier vous-même$/, '') || 'Manuel'} · vérifié par vous`; }
     totaux[etatEx]++;
     if (!groupes.has(e.groupe)) groupes.set(e.groupe, { items: [], alertes: 0, manuels: 0 });
     const g = groupes.get(e.groupe);
     if (etatEx === 'alerte') g.alertes++;
-    if (etatEx === 'manuel' || e.manuel) g.manuels++;
+    if (etatEx === 'manuel') g.manuels++;
     g.items.push(el('li', { class: `exigence ${etatEx}` },
       el('span', { class: 'icone', 'aria-hidden': 'true' }, ICONES[etatEx]),
       el('span', { class: 'statut-ex' }, libelle),
       el('span', {}, `${e.texte} (${e.page}).`),
-      e.manuel ? el('span', { class: 'discret' }, e.manuel) : null));
+      e.manuel ? el('span', { class: 'discret' }, e.manuel) : null,
+      cochable || etatEx === 'verifie'
+        ? el('button', { type: 'button', class: 'geste verif', onclick: () => basculerVerifie(e.texte) }, etatEx === 'verifie' ? 'Décocher' : 'Marquer vérifié')
+        : null));
   }
   const codes = etat.regles.parametres.codes_sujet;
   const blocs = [];
@@ -621,7 +689,7 @@ function afficherExigences() {
         el('p', { class: 'discret' }, 'Disciplines'), el('ul', { class: 'codes' }, ...codes.disciplines.map((c) => el('li', {}, c))),
         el('p', { class: 'discret' }, 'Secteurs et branches'), el('ul', { class: 'codes' }, ...codes.secteurs.map((c) => el('li', {}, c))))));
     }
-    const resume = [g.alertes ? `${g.alertes} en alerte` : '', g.manuels ? `${g.manuels} à vérifier` : ''].filter(Boolean).join(' · ') || 'sans écart';
+    const resume = [g.alertes ? `${g.alertes} en alerte` : '', g.manuels ? `${g.manuels} à vérifier` : ''].filter(Boolean).join(' · ') || 'traité';
     const groupe = el('details', { class: 'groupe' }, el('summary', {}, CHEVRON(), el('span', {}, nom), el('span', { class: 'resume' }, resume)), el('ul', {}, ...g.items));
     groupe.open = g.alertes > 0 || !r;
     blocs.push(groupe);
@@ -630,9 +698,9 @@ function afficherExigences() {
   const total = Object.values(totaux).reduce((a, b) => a + b, 0);
   $('progression').hidden = !r;
   if (r) {
-    $('progression').querySelector('.ok').style.width = `${(100 * totaux.ok) / total}%`;
+    $('progression').querySelector('.ok').style.width = `${(100 * (totaux.ok + totaux.verifie + totaux.na)) / total}%`;
     $('progression').querySelector('.alerte').style.width = `${(100 * totaux.alerte) / total}%`;
-    $('progression-texte').textContent = `${totaux.alerte + totaux.manuel} à traiter (${totaux.alerte} en alerte, ${totaux.manuel} à vérifier vous-même) · ${totaux.ok} sans écart${totaux.na ? ` · ${totaux.na} non applicable(s)` : ''} · ${total} exigences`;
+    $('progression-texte').textContent = `${totaux.alerte + totaux.manuel} à traiter (${totaux.alerte} en alerte, ${totaux.manuel} à vérifier vous-même) · ${totaux.ok} sans écart${totaux.verifie ? ` · ${totaux.verifie} vérifiée(s) par vous` : ''}${totaux.na ? ` · ${totaux.na} non applicable(s)` : ''} · ${total} exigences`;
   }
   $('compte-exigences').textContent = r ? `${totaux.alerte + totaux.manuel}` : '';
   $('compte-exigences').title = 'Exigences à traiter : en alerte ou à vérifier vous-même';

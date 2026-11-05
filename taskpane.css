@@ -274,7 +274,7 @@ button.auto.arme { background: var(--accent); color: var(--accent-texte); }
 .groupe[open] .chevron { transform: rotate(90deg); }
 .groupe ul { list-style: none; margin: 0; padding: 0; }
 .exigence { display: grid; grid-template-columns: 18px 1fr; gap: 2px 6px; padding: 8px 10px; border-top: 1px solid var(--bord); font-size: 12px; }
-.exigence .icone { grid-row: span 3; font-size: 12px; line-height: 1.45; text-align: center; }
+.exigence .icone { grid-row: span 4; font-size: 12px; line-height: 1.45; text-align: center; }
 .exigence.ok .icone { color: var(--vert); }
 .exigence.alerte .icone { color: var(--orange); }
 .exigence.manuel .icone { color: var(--rouge); }
@@ -284,6 +284,8 @@ button.auto.arme { background: var(--accent); color: var(--accent-texte); }
 .exigence.alerte .statut-ex { color: var(--orange); }
 .exigence.manuel .statut-ex { color: var(--rouge); }
 .exigence.auto .statut-ex { color: var(--discret); }
+.exigence.verifie .icone, .exigence.verifie .statut-ex { color: var(--vert); }
+.exigence .verif { justify-self: start; margin-top: 2px; }
 .exigence .discret { font-size: 11.5px; }
 .codes { margin: 2px 0 6px; padding-left: 16px; font-size: 11.5px; }
 .exigence details summary { cursor: pointer; color: var(--accent); }
