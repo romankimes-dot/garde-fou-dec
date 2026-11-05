@@ -60,6 +60,10 @@ const ENTREE_DE_TABLE = /(\t|\.{3,}|…)\s*\d+\s*$/;
 export function analyserStructure(doc, regles) {
   const motifsSections = regles.parametres.notice_sections.map((s) => new RegExp(s.motif));
   const motifsCategories = regles.parametres.bibliographie_categories.map((c) => new RegExp(c.motif));
+  // Intitulé long de la Note (« Article professionnel ou étude consultables sur un site internet ») tapé tel quel :
+  // catégorie, quelle que soit sa longueur (une référence, elle, commence par un auteur et porte des virgules).
+  const clesCategories = regles.parametres.bibliographie_categories.map((c) => cleTitre(c.titre));
+  const intituleCategorie = (cle, k) => cle.length <= clesCategories[k].length + 10 && cle.startsWith(clesCategories[k].slice(0, 25));
   const consignes = (regles.consignes || []).map(normaliser).filter((c) => c.length > 20);
   let zoneCourante = null;
 
@@ -87,7 +91,7 @@ export function analyserStructure(doc, regles) {
       else if (b.role === 'annexe' || (annexe && court)) { b.titre = true; b.role = 'annexe'; b.niveau = 1; }
       else if (section >= 0 && (b.titre || /^\d\s*[.)-]/.test(n))) {
         b.titre = true; b.role = 'section-notice'; b.niveau = 2; b.sectionNotice = section + 1;
-      } else if (categorie >= 0 && (b.titre || b.role === 'categorie' || /^\d\s*[.)-]/.test(n) || cle.length < 45)) {
+      } else if (categorie >= 0 && (b.titre || b.role === 'categorie' || /^\d\s*[.)-]/.test(n) || cle.length < 45 || intituleCategorie(cle, categorie))) {
         b.titre = true; b.role = 'categorie'; b.niveau = 3; b.categorie = categorie + 1;
       } else if (b.role === 'categorie') { b.titre = true; b.niveau = 3; }
       else if (zoneCourante === 'biblio' && !b.titre && (/^\d\s*[.)-]/.test(n) || capitales(b.texte))) {

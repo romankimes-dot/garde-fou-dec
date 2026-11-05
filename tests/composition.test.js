@@ -66,7 +66,8 @@ test('notice collée en texte brut : tableaux « | », plans en tableau, légend
     'Plan détaillé', 'Introduction (4 pages)', 'Partie 1 – Le constat (48 pages)', 'Chapitre 1 – Les faits (24 pages)',
     'Section 1 – Ce qui est reçu (12 pages)', '§ 1 – Les fichiers (6 pages) – outil n° 1 : table de passage', '§ 2 – Les délais (6 pages)',
     'Section 2 – Ce qui est fait (12 pages)', '§ 1 – Le traitement (6 pages)', '§ 2 – La livraison (6 pages)', 'Conclusion (3 pages)',
-    'Bibliographie', 'Référence réglementaire', 'NOM Prénom, (2020), Titre, Éditeur, 100 pages.'];
+    'Bibliographie', 'Référence réglementaire', 'NOM Prénom, (2020), Titre, Éditeur, 100 pages.',
+    'Article professionnel ou étude consultables sur un site internet', 'AUTEUR Prénom, (2021), Étude, Site, 10 pages.'];
   const doc = { source: 'word', blocs: lignes.map((texte, i) => ({ i, texte, label: '', titre: false, niveau: 0, role: null, style: null, tableau: null, liens: [], image: false, notes: 0, consigne: false, sautAvant: false, garde: false })) };
   const plan = planifier(doc, await regles(), 'notice');
   const st = (debut) => (plan.lignes.find((l) => l.texte.startsWith(debut)) || {}).style;
@@ -74,6 +75,8 @@ test('notice collée en texte brut : tableaux « | », plans en tableau, légend
   assert.equal(st('Source'), 'Source');
   assert.equal(st('- premier'), 'Listetirets');
   assert.equal(st('NOM Prénom'), 'Referencebiblio');
+  // Intitulé long de la Note : catégorie, pas référence.
+  assert.equal(st('Article professionnel'), 'Titrecatégorie');
   assert.equal(plan.lignes.filter((l) => l.tableauTexte).map((l) => l.tableauTexte.length).join(','), '3,2');
   const pl = plan.lignes.filter((l) => l.planLigne).map((l) => l.planLigne);
   assert.deepEqual(pl.find((x) => x.outil), { niveau: 4, titre: '§ 1 – Les fichiers', pages: '6', outil: 'outil n° 1 : table de passage' });

@@ -101,9 +101,21 @@ function pagination(doc, S, parPage) {
     while (rempli > LIGNES_PAGE) { page++; rempli -= LIGNES_PAGE; }
   };
   const premiereApresGarde = doc.blocs.findIndex((b) => !b.garde);
-  // Tableaux : une rangée occupe autant de lignes que sa cellule la plus longue (colonnes côte à côte).
-  const colonnes = new Map();
-  for (const b of doc.blocs) if (b.tableau !== null) colonnes.set(b.tableau, Math.max(colonnes.get(b.tableau) || 1, (b.colonne ?? 0) + 1));
+  // Tableaux : une rangée occupe autant de lignes que sa cellule la plus longue (colonnes côte à côte). Largeur d'une
+  // colonne au prorata de sa plus longue cellule (comme la mise en forme au gabarit) ; texte des tableaux en taille 10
+  // et interligne simple : environ 1,2 fois plus de caractères par ligne et 0,64 ligne de texte courant par ligne.
+  const longueurs = new Map();
+  for (const b of doc.blocs) {
+    if (b.tableau === null) continue;
+    const t = longueurs.get(b.tableau) || [];
+    t[b.colonne ?? 0] = Math.max(t[b.colonne ?? 0] || 8, Math.min(60, b.intitule.length));
+    longueurs.set(b.tableau, t);
+  }
+  const largeurDe = (b) => {
+    const t = longueurs.get(b.tableau);
+    const total = t.reduce((a, x) => a + (x || 8), 0);
+    return Math.max(8, Math.floor((CAR_LIGNE * 1.2 * (t[b.colonne ?? 0] || 8)) / total));
+  };
   let rangee = null;
   for (const b of doc.blocs) {
     if (b.i === premiereApresGarde) nouvellePage();
@@ -114,13 +126,12 @@ function pagination(doc, S, parPage) {
       lignes.push({ i: b.i, intitule: b.intitule, niveau: b.niveau, page, pages: car / parPage });
     }
     if (b.tableau !== null) {
-      const largeur = Math.max(10, Math.floor(CAR_LIGNE / colonnes.get(b.tableau)));
       const cle = `${b.tableau}|${b.ligne}`;
-      const n = Math.max(1, Math.ceil(b.intitule.length / largeur));
+      const n = Math.max(1, Math.ceil(b.intitule.length / largeurDe(b))) * 0.64;
       vide = false;
       if (!rangee || rangee.cle !== cle) { if (rangee) ajouter(rangee.n); rangee = { cle, n: 0, cellules: new Map() }; }
       rangee.cellules.set(b.colonne, (rangee.cellules.get(b.colonne) || 0) + n);
-      rangee.n = Math.max(...rangee.cellules.values());
+      rangee.n = Math.max(...rangee.cellules.values()) + 0.2; // marges de cellule
       continue;
     }
     if (rangee) { ajouter(rangee.n + 0.5); rangee = null; }
