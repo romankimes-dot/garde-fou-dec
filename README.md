@@ -6,7 +6,7 @@ Volet de Word (en ligne ou sur ordinateur) qui contrôle la demande d'agrément 
 
 ## Installer dans Word (une fois)
 
-Accueil, Compléments, « Plus de compléments », « Mes compléments », « Charger mon complément », choisir `manifest.xml`. Le volet est servi par GitHub Pages depuis la branche `main` (https://romankimes-dot.github.io/garde-fou-dec/). Après une mise à jour : clic droit dans le volet, « Actualiser » (cache de GitHub Pages : jusqu'à 10 minutes). Changer d'adresse : `python3 outils/construire-manifeste.py https://nouvelle/adresse`, puis recharger `manifest.xml`.
+Accueil, Compléments, « Plus de compléments », « Mes compléments », « Charger mon complément », choisir `manifest.xml`. Le volet est servi par GitHub Pages depuis la branche `main` (https://romankimes-dot.github.io/garde-fou-dec/). Après une mise à jour : Word en ligne, recharger la page du navigateur (F5) puis rouvrir le complément ; Word sur ordinateur, clic droit dans le volet, « Actualiser » (cache de GitHub Pages : jusqu'à 10 minutes ; la version s'affiche en haut du volet). Changer d'adresse : `python3 outils/construire-manifeste.py https://nouvelle/adresse`, puis recharger `manifest.xml`.
 
 ## Utiliser
 
@@ -14,7 +14,7 @@ Accueil, Compléments, « Plus de compléments », « Mes compléments », « Ch
 - **Contrôler ce document** : lit le document ouvert, mise en page comprise. Un clic sur un extrait sélectionne le passage. **Contrôler un fichier .docx** : même contrôle sur une copie.
 - Chaque règle : sa base (Note du jury, page citée, ou préférence), « Comment corriger », et dans Word les boutons **Corriger** (aperçu avant/après pour les changements de texte) et **Sélectionner pour trier** (tri de la bibliographie par Accueil, Trier).
 - **Gabarit** (mise en forme) : le texte collé sans mise en forme dans le document ouvert est versé dans un **nouveau document** créé depuis le gabarit du jury (page de garde remplie, table des matières, styles, tableaux repris) ; le document d'origine n'est pas modifié et l'outil n'écrit aucun texte. Gabarits vierges téléchargeables depuis le même onglet.
-- **Exigences de la Note** : toutes les exigences, contrôlées ou à vérifier soi-même, dépôt compris, et les codes du sujet.
+- **Exigences de la Note** : toutes les exigences, contrôlées ou à vérifier soi-même, dépôt compris, et les codes du sujet. Chaque alerte est rattachée à une seule exigence ; une exigence à vérifier soi-même se coche « Marquer vérifié » (mémorisé pour ce document, dans ce navigateur).
 - **Copier les alertes** : règles et messages, passages masqués, pour le calibrage.
 - **Réglages** : termes du cabinet, des clients et des personnes (conservés dans ce navigateur seulement) ; occurrences ignorées ; diagnostic de lecture.
 
@@ -37,6 +37,7 @@ Le PDF exporté reste la référence pour la pagination exacte (`scripts/mise-en
 ## Limites connues
 
 - Lecture du document ouvert et corrections testées sur une imitation de Word (`tests/`), à confirmer dans Word (Réglages, Diagnostic, ligne `ooxml`).
+- Mise en forme au gabarit : liens hypertextes et images non repris (signalés avant création) ; tables des matières à mettre à jour dans Word.
 - Non contrôlables : pagination réelle (le PDF fait foi), signature manuscrite, contenu des images, fond (contenu des sections, transitions, plagiat) ; le panneau « Exigences de la Note » les rappelle.
 
 ## Organisation
@@ -52,5 +53,7 @@ Le PDF exporté reste la référence pour la pagination exacte (`scripts/mise-en
 | `tests/` | Gabarits et documents fictifs (`fabriquer-fixtures.py`), modèle officiel de l'annexe n° 1, tests |
 
 Nouvelle version : `python3 outils/version.py 1.2.3` (volet, manifeste et paramètre `?v=` de chaque fichier chargé, pour que Word ne mélange jamais deux versions en cache).
+
+Vérifier la mise en forme au gabarit sans Word : `node outils/verifier-mise-en-forme.mjs SOURCE.docx notice|memoire [RESULTAT.docx] [--pdf]` (texte conservé dans l'ordre, styles, tableaux, page de garde, consignes restées, alertes de Garde-fou apparues, rendu LibreOffice). Boucle de correction avec Claude Code : commande `/verifier-gabarit` (`.claude/commands/verifier-gabarit.md`) ; documents réels dans `tests/local/`, ignoré par Git.
 
 Tests : `npm test` (Node 22). Aperçu en console : `node tests/apercu.js FICHIER.docx notice depot`.

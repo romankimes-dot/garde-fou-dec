@@ -219,18 +219,21 @@ export async function selectionnerParagraphe(i, passage = null) {
     await context.sync();
     const p = paras.items[i];
     if (!p) return false;
-    // Le passage précis s'il est retrouvé dans le paragraphe, sinon le paragraphe entier.
-    if (passage) {
+    // Le passage précis s'il est retrouvé dans le paragraphe (le plus court d'abord), sinon le paragraphe entier.
+    const essais = !passage ? [] : Array.isArray(passage) ? passage : [{ texte: passage, rang: 0 }];
+    for (const { texte, rang } of essais) {
       try {
-        const res = p.search(passage, { matchCase: true });
-        res.load('items');
+        const res = p.search(texte, { matchCase: true });
+        res.load('items/text');
         await context.sync();
-        if (res.items.length) {
-          res.items[0].select('Select');
+        const exacts = res.items.filter((x) => x.text === texte);
+        const cible = exacts[rang] || exacts[0] || res.items[0];
+        if (cible) {
+          cible.select('Select');
           await context.sync();
           return true;
         }
-      } catch { /* recherche refusée : paragraphe entier */ }
+      } catch { /* recherche refusée : essai suivant */ }
     }
     p.select('Select');
     await context.sync();

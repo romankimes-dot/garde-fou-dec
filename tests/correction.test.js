@@ -106,3 +106,29 @@ test('corrections : paragraphe modifié depuis le contrôle laissé tel quel', a
   assert.equal(r.decales, 1);
   assert.equal(items[0].text, 'Texte  modifié');
 });
+
+test('corrections : un mot ajouté en fin de long paragraphe suffit à le laisser', async () => {
+  const { corriger } = await import('../sources/correction.js');
+  const lu = `${'Un long paragraphe sans rien de particulier. '.repeat(3)}L'analyse.`;
+  const items = imiterWord([[`${lu} ESSAI`, { name: 'Calibri', size: 12 }]]);
+  const r = await corriger([{ type: 'apostrophes', i: 0 }], { blocs: [{ i: 0, texte: lu }] }, (await regles()).parametres);
+  assert.equal(r.decales, 1);
+  assert.equal(r.lieux[0].i, 0);
+  assert.ok(items[0].text.includes("L'analyse"));
+});
+
+test('style Normal : taille posée sur le style, repli paragraphe par paragraphe si Word refuse', async () => {
+  const { corriger, annuler } = await import('../sources/correction.js');
+  const items = imiterWord([['Texte courant', { name: 'Calibri', size: 11 }], ['Titre', { name: 'Calibri', size: 16 }]]);
+  items[0].styleBuiltIn = 'Normal';
+  items[1].styleBuiltIn = 'Heading1';
+  // Word refuse le style (comme « propriété non disponible ») : repli.
+  const run = globalThis.Word.run;
+  globalThis.Word.run = (f) => run((ctx) => f({ ...ctx, document: { ...ctx.document, getStyles: () => { throw new Error('non disponible'); } } }));
+  const r = await corriger([{ type: 'style-normal', i: 0 }], { blocs: items.map((p, i) => ({ i, texte: p.text })) }, (await regles()).parametres);
+  assert.deepEqual(r.erreurs, []);
+  assert.equal(items[0].font.size, 12);
+  assert.equal(items[1].font.size, 16);
+  await annuler(r.journal);
+  assert.equal(items[0].font.size, 11);
+});

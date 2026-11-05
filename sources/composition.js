@@ -39,7 +39,8 @@ export function planifier(doc, regles, profil) {
     if (b.titre && b.zone) { lignes.push({ i: b.i, texte, style: 'Titrehorsplan' }); return; }
     if (b.titre && b.role === 'section-notice') { lignes.push({ i: b.i, texte, style: 'Titrenotice' }); return; }
     if (b.titre && b.role === 'categorie') { lignes.push({ i: b.i, texte, style: 'Titrecatégorie' }); return; }
-    if (b.titre && b.role === 'annexe') { lignes.push({ i: b.i, texte, style: 'Titreannexe' }); return; }
+    // Annexe : numéro automatique du gabarit (« Annexe n – »), le numéro tapé ou hérité est retiré.
+    if (b.titre && b.role === 'annexe') { lignes.push({ i: b.i, texte: texte.replace(/^annexe\s*(?:n°\s*)?\d+\s*[-–—:.]?\s*/i, ''), style: 'Titreannexe' }); return; }
     const dansPlan = S.dans('plan-det', b.i) || S.dans('plan-synth', b.i);
     // Texte simple du mémoire : « Partie 1 – … », « Chapitre 2 – … » reconnus à leur début.
     const pl = !dansPlan && texte.length <= 160 && !/[.;,]$/.test(texte) ? lirePlan(texte) : null;
@@ -59,8 +60,11 @@ export function planifier(doc, regles, profil) {
     const suivant = copie.blocs.slice(k + 1).find((x) => x.texte.trim());
     const sousTitre = !dansPlan && S.notice && b.i >= S.notice.debut && b.i < S.notice.fin
       && (b.titre || (texte.length <= 120 && !/[.:;,]$/.test(texte) && suivant && suivant.texte.length > texte.length * 1.5 && !/^[•▪◦\-–]/.test(texte)));
-    lignes.push({ i: b.i, texte, style: 'Normal', gras: !!sousTitre });
+    // Sous-titre numéroté « 1.1 » : numéro retiré (découpage proscrit par la Note, p. 14), comme le propose A06.
+    lignes.push({ i: b.i, texte: sousTitre ? texte.replace(/^\d+(?:\.\d+)+\.?\s+/, '') : texte, style: 'Normal', gras: !!sousTitre });
   });
+  const liens = copie.blocs.filter((b) => !b.garde && b.tableau === null && (b.liens || []).length).length;
+  if (liens) avertissements.push(`${liens} paragraphe(s) avec lien hypertexte : le texte est repris, pas le lien (renvois aux annexes, URL) ; à recréer (Insertion, Lien).`);
   if (images) avertissements.push(`${images} image(s) non reprise(s) : les recopier dans le nouveau document.`);
   const sections = copie.blocs.filter((b) => b.role === 'section-notice').length;
   if (profil === 'notice' && sections < 7) avertissements.push(`${sections} section(s) sur 7 portent l'intitulé exact de la Note : après création, Garde-fou proposera de renommer les autres (règle A09).`);

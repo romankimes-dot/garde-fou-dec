@@ -56,7 +56,7 @@ export function controler(doc, regles, options) {
     resultats.push({ regle: r, niveau, occurrences, ignorees });
   }
 
-  if (profil === 'memoire' && S.zone('notice') && !S.corps) infos.unshift({ regle: '-', texte: 'Ce document ressemble à une notice (titre « Notice explicative », ni introduction ni conclusion) : choisir « Notice » en haut du volet.' });
+  if (profil === 'memoire' && S.zone('notice') && !S.corps) infos.unshift({ regle: '-', texte: 'Ce document ressemble à une notice (titre « Notice explicative », ni introduction ni conclusion) : choisir « Demande d’agrément » en haut du volet.' });
   if (profil === 'notice' && !S.notice && S.corps) infos.unshift({ regle: '-', texte: 'Ce document ressemble à un mémoire (introduction et conclusion, pas de notice explicative) : choisir « Mémoire » en haut du volet.' });
 
   return {
@@ -86,7 +86,8 @@ function pagination(doc, S, parPage) {
   const lignes = [];
   let page = 1;
   let rempli = 0; // lignes déjà occupées sur la page courante
-  const nouvellePage = () => { if (rempli > 0) { page++; rempli = 0; } };
+  let vide = true; // page commencée sans texte (paragraphes vides seulement) : pas de nouveau saut
+  const nouvellePage = () => { if (!vide) { page++; rempli = 0; vide = true; } };
   const ajouter = (n) => {
     rempli += n;
     while (rempli > LIGNES_PAGE) { page++; rempli -= LIGNES_PAGE; }
@@ -107,6 +108,7 @@ function pagination(doc, S, parPage) {
       const largeur = Math.max(10, Math.floor(CAR_LIGNE / colonnes.get(b.tableau)));
       const cle = `${b.tableau}|${b.ligne}`;
       const n = Math.max(1, Math.ceil(b.intitule.length / largeur));
+      vide = false;
       if (!rangee || rangee.cle !== cle) { if (rangee) ajouter(rangee.n); rangee = { cle, n: 0, cellules: new Map() }; }
       rangee.cellules.set(b.colonne, (rangee.cellules.get(b.colonne) || 0) + n);
       rangee.n = Math.max(...rangee.cellules.values());
@@ -114,6 +116,7 @@ function pagination(doc, S, parPage) {
     }
     if (rangee) { ajouter(rangee.n + 0.5); rangee = null; }
     const n = Math.max(1, Math.ceil(b.intitule.length / CAR_LIGNE));
+    if (b.texte.trim() || b.garde) vide = false;
     ajouter(n + (b.titre ? 1 : b.texte.trim() ? 0.3 : 0));
   }
   if (rangee) ajouter(rangee.n);
