@@ -1,25 +1,32 @@
-// Corrections dans le document ouvert (Office.js), à la demande, paragraphe par paragraphe.
-// Seules des corrections mécaniques sont proposées, avec aperçu quand le texte change de sens ;
-// chacune s'annule par Ctrl+Z dans Word. Un paragraphe modifié depuis le contrôle est laissé tel quel.
+// Corrections dans le document ouvert (Office.js), à la demande, avec aperçu ligne à ligne.
+//
+// Principes, tirés des essais dans Word en ligne :
+// - un passage est d'abord retrouvé par son contexte (« lus : » plutôt que « : »), sans espace en tête ni en fin
+//   de chaîne et sans caractères génériques (refusés par Word en ligne) ;
+// - seul le plus petit passage est remplacé (le guillemet, l'espace et ses deux voisins), et sa mise en forme
+//   d'origine (police, taille, gras, italique, couleur…) est réappliquée : Word donne sinon au texte inséré la
+//   police par défaut ;
+// - un seul remplacement par paragraphe et par passe, puis relecture du texte réel (Word en ligne décale les
+//   remplacements groupés d'un même paragraphe) ;
+// - chaque remplacement est consigné dans un journal, pour « Annuler la dernière correction » en un clic
+//   (Ctrl+Z, dans Word, annule paragraphe par paragraphe).
 
-const NBSP = '\u00a0';
+const NBSP = ' ';
 const ACCENTS = { Ere: 'Ère' }; // sinon : E initial → É
+const PROPRIETES = ['name', 'size', 'bold', 'italic', 'underline', 'color', 'highlightColor', 'superscript', 'subscript', 'strikeThrough'];
 
 export const LIBELLES = {
   insecables: 'espaces insécables avant : ; ! ? et dans « »',
   guillemets: 'guillemets droits " " remplacés par « »',
+  apostrophes: "apostrophes droites ' remplacées par ’",
   espaces: 'espaces doublés et espace avant la virgule',
   unites: 'espace insécable avant % et €',
   accents: 'majuscules accentuées',
   'numero-simple': 'numéro simple (« Section 1.2 » → « Section 2 »)',
   'sans-numero': 'numéro 1.1 retiré du sous-titre',
   renommer: 'intitulé exact de la Note',
-  trier: 'sélection pour le tri alphabétique de Word',
   'style-normal': 'style Normal en taille 12',
 };
-
-// Corrections dont le résultat est montré avant application.
-export const AVEC_APERCU = new Set(['guillemets', 'renommer', 'sans-numero', 'numero-simple']);
 
 /** Paires de guillemets droits d'un texte : null si ambiguës (nombre impair, pouces, espace intérieure). */
 function pairesGuillemets(t) {
@@ -32,32 +39,9 @@ function pairesGuillemets(t) {
   return pos;
 }
 
-/** Texte après correction (aperçu), ou null si la correction ne s'applique pas. */
-export function apercu(c, bloc) {
-  const t = bloc.texte;
-  switch (c.type) {
-    case 'renommer': return c.texte;
-    case 'guillemets': {
-      const pos = pairesGuillemets(t);
-      if (!pos) return null;
-      let k = 0;
-      return t.replace(/"/g, () => (k++ % 2 ? `${NBSP}»` : `«${NBSP}`));
-    }
-    case 'sans-numero': {
-      const m = /^\s*\d+(?:\.\d+)+\.?\s+/.exec(t);
-      return m ? t.slice(m[0].length) : null;
-    }
-    case 'numero-simple': {
-      const m = /(partie|chapitre|section|paragraphe|§)\s*(\d+(?:\.\d+)+)/i.exec(t);
-      return m ? t.replace(m[0], `${m[1]} ${m[2].split('.').pop()}`) : null;
-    }
-    default: return null;
-  }
-}
-
 /**
- * Remplacements par le contexte : chaque passage à corriger est cherché avec ses voisins (« n : » plutôt que « : »),
- * sans espace en tête ni en fin de chaîne et sans caractères génériques, que Word en ligne refuse.
+ * Remplacement décrit par son contexte : `cherche` (texte à retrouver), `debut` et `longueur` du passage changé
+ * dans ce contexte, `nouveau` (texte qui le remplace). Le contexte n'a ni espace en tête ni en fin.
  */
 function contexte(t, debut, longueur, nouveau) {
   let a = debut;
@@ -66,15 +50,14 @@ function contexte(t, debut, longueur, nouveau) {
   while (a > 0 && /\s/.test(t[a])) a--;
   for (let k = 0; k < 3 && b < t.length; k++) b++;
   while (b < t.length && /\s/.test(t[b - 1])) b++;
-  // En bord de paragraphe (espace finale, alinéa), le contexte est rogné sans toucher au passage lui-même.
   while (a < debut && /\s/.test(t[a])) a++;
   while (b > debut + longueur && /\s/.test(t[b - 1])) b--;
   const cherche = t.slice(a, b);
   if (/^\s|\s$|\^/.test(cherche) || cherche.length > 250 || cherche.length < 2) return null;
-  const d = debut - a;
-  const remplace = cherche.slice(0, d) + nouveau + cherche.slice(d + longueur);
-  return remplace === cherche ? null : { cherche, remplace: () => remplace };
+  const r = { cherche, debut: debut - a, longueur, nouveau };
+  return apres(r) === cherche ? null : r;
 }
+const apres = (r) => r.cherche.slice(0, r.debut) + r.nouveau + r.cherche.slice(r.debut + r.longueur);
 
 function parContexte(t, motif, transformer) {
   const liste = [];
@@ -85,15 +68,14 @@ function parContexte(t, motif, transformer) {
   return liste;
 }
 
-/** Recherches et remplacements dans un paragraphe. */
-function remplacements(c, bloc, parametres) {
-  const t = bloc.texte;
+/** Remplacements à faire dans un texte, pour une correction ; le premier est appliqué, puis le texte est relu. */
+function remplacements(c, t, parametres) {
   switch (c.type) {
     case 'insecables':
       return [
-        ...parContexte(t, / ([:;!?])/g, (m) => NBSP + m[1]),
-        ...parContexte(t, /« /g, () => `«${NBSP}`),
-        ...parContexte(t, / »/g, () => `${NBSP}»`),
+        ...parContexte(t, / (?=[:;!?])/g, () => NBSP),
+        ...parContexte(t, /(?<=«) /g, () => NBSP),
+        ...parContexte(t, / (?=»)/g, () => NBSP),
       ];
     case 'guillemets': {
       // Le premier guillemet droit restant : fermant si un « est encore ouvert avant lui, ouvrant sinon.
@@ -104,118 +86,247 @@ function remplacements(c, bloc, parametres) {
       const r = contexte(t, i, 1, ouvert ? `${NBSP}»` : `«${NBSP}`);
       return r ? [r] : [];
     }
+    case 'apostrophes':
+      return parContexte(t, /(?<=\p{L})'(?=\p{L})/gu, () => '’');
     case 'espaces':
-      return [...parContexte(t, / {2,}/g, () => ' '), ...parContexte(t, / ,/g, () => ',')];
+      return [...parContexte(t, /(?<= ) +/g, () => ''), ...parContexte(t, / (?=,)/g, () => '')];
     case 'unites':
-      return parContexte(t, /(\d) ?([%€])/g, (m) => m[1] + NBSP + m[2]);
-    case 'accents':
-      return parametres.majuscules_accentuees.filter((m) => new RegExp(`(?<!\\p{L})${m}(?!\\p{L})`, 'u').test(t)).map((m) => ({
-        cherche: m, options: { matchWholeWord: true }, remplace: () => ACCENTS[m] || `É${m.slice(1)}`,
-      }));
+      return [...parContexte(t, /(?<=\d) (?=[%€])/g, () => NBSP), ...parContexte(t, /(?<=\d)(?=[%€])/g, () => NBSP)];
+    case 'accents': {
+      const mots = parametres?.majuscules_accentuees || [];
+      if (!mots.length) return [];
+      const re = new RegExp(`(?<!\\p{L})(${mots.join('|')})(?!\\p{L})`, 'gu');
+      return [...t.matchAll(re)].map((m) => contexte(t, m.index, 1, (ACCENTS[m[1]] || 'É').slice(0, 1))).filter(Boolean);
+    }
     case 'numero-simple': {
       const m = /(partie|chapitre|section|paragraphe|§)\s*(\d+(?:\.\d+)+)/i.exec(t);
-      return m ? [{ cherche: m[0], premier: true, remplace: () => `${m[1]} ${m[2].split('.').pop()}` }] : [];
+      if (!m) return [];
+      const debut = m.index + m[0].length - m[2].length;
+      const r = contexte(t, debut, m[2].length - m[2].split('.').pop().length, '');
+      return r ? [r] : [];
+    }
+    case 'sans-numero': {
+      const m = /^(\s*)(\d+(?:\.\d+)+\.?\s+)/.exec(t);
+      if (!m) return [];
+      const r = contexte(t, m[1].length, m[2].length, '');
+      return r ? [r] : [];
     }
     default:
       return [];
   }
 }
 
+/** Texte après correction (aperçu), ou null si rien ne change ou si le cas est ambigu. */
+export function apercu(c, bloc, parametres = null) {
+  const t = bloc.texte;
+  if (c.type === 'renommer') return c.texte;
+  if (c.type === 'style-normal') return null;
+  if (c.type === 'guillemets' && !pairesGuillemets(t)) return null;
+  let courant = t;
+  for (let k = 0; k < 200; k++) {
+    const r = remplacements(c, courant, parametres)[0];
+    if (!r) break;
+    const i = courant.indexOf(r.cherche);
+    if (i < 0) break;
+    courant = courant.slice(0, i) + apres(r) + courant.slice(i + r.cherche.length);
+  }
+  return courant === t ? null : courant;
+}
+
 // Comparaison tolérante (espaces, insécables, traits d'union conditionnels, caractères de contrôle) : sert à repérer
 // un paragraphe réellement réécrit depuis le contrôle, pas une différence de lecture.
-const comparable = (t) => (t || '').replace(/[\s\u00a0\u202f\u00ad\u200b\u0007\u000b\r]/g, '').slice(0, 50).toLowerCase();
+const comparable = (t) => (t || '').replace(/[\s  ­​\u0007\u000b\r]/g, '').slice(0, 50).toLowerCase();
+const nettoyer = (t) => (t || '').replace(/[\r\u0007\u000b]/g, ' ');
+
+/** Plus petit passage à remplacer dans le contexte : le caractère changé, ou l'espace et ses deux voisins. */
+function petitPassage(r) {
+  const change = r.cherche.slice(r.debut, r.debut + r.longueur);
+  if (change.length === 1 && /\S/.test(change)) return { texte: change, avant: r.cherche.slice(0, r.debut).split(change).length - 1, nouveau: r.nouveau };
+  let a = r.debut;
+  let b = r.debut + r.longueur;
+  if (a > 0) a--;
+  if (b < r.cherche.length) b++;
+  while (a > 0 && /\s/.test(r.cherche[a])) a--;
+  while (b < r.cherche.length && /\s/.test(r.cherche[b - 1])) b++;
+  const texte = r.cherche.slice(a, b);
+  return { texte, avant: r.cherche.slice(0, a).split(texte).length - 1, nouveau: texte.slice(0, r.debut - a) + r.nouveau + texte.slice(r.debut - a + r.longueur) };
+}
+
+/**
+ * Applique un remplacement par paragraphe, en une passe (trois allers-retours avec Word pour tous les paragraphes).
+ * travaux : [{ para, r, i }]. Rend la liste des remplacements faits, à consigner au journal.
+ */
+async function unePasse(context, travaux, compte) {
+  const etape1 = travaux.map((t) => {
+    const res = t.para.search(t.r.cherche, { matchCase: true });
+    res.load('items');
+    return { ...t, res };
+  });
+  await context.sync();
+  const etape2 = [];
+  for (const t of etape1) {
+    if (!t.res.items.length) { compte.introuvables++; continue; }
+    const p = petitPassage(t.r);
+    const sous = t.res.items[0].search(p.texte, { matchCase: true });
+    sous.load(['items/text', ...PROPRIETES.map((x) => `items/font/${x}`)].join(','));
+    etape2.push({ ...t, p, sous });
+  }
+  await context.sync();
+  const faits = [];
+  for (const t of etape2) {
+    // Word rapproche « " » de « “ » et « ' » de « ’ » : seules les occurrences exactes comptent.
+    const exacts = t.sous.items.filter((x) => x.text === t.p.texte);
+    const cible = exacts[t.p.avant] || exacts[0];
+    if (!cible) { compte.introuvables++; continue; }
+    const police = {};
+    for (const x of PROPRIETES) police[x] = cible.font[x];
+    // Passage de plus d'un caractère en mise en forme mixte (une partie en italique…) : laissé tel quel.
+    if (t.p.texte.length > 1 && ['name', 'size', 'italic', 'bold'].some((x) => police[x] === null || police[x] === undefined)) {
+      compte.mixtes++;
+      continue;
+    }
+    const nouveau = cible.insertText(t.p.nouveau || '', 'Replace');
+    if (t.p.nouveau) for (const x of PROPRIETES) if (police[x] !== null && police[x] !== undefined) nouveau.font[x] = police[x];
+    compte.corrections++;
+    faits.push({ i: t.i, r: t.r, police });
+  }
+  await context.sync();
+  return faits;
+}
 
 /**
  * Applique des corrections [{ type, i, texte?, style? }] (i : numéro de body.paragraphs).
- * Rend { corrections, decales, ignorees }.
+ * Rend { corrections, paragraphes, decales, dejaCorriges, mixtes, introuvables, ignorees, erreurs, journal }.
  */
 export async function corriger(liste, doc, parametres) {
   return Word.run(async (context) => {
     const paras = context.document.body.paragraphs;
     paras.load('items/text');
     await context.sync();
-    let decales = 0;
-    let ignorees = 0;
-    let corrections = 0;
-    let trouves = 0;
-    let dejaCorriges = 0;
+    const compte = { corrections: 0, decales: 0, dejaCorriges: 0, mixtes: 0, introuvables: 0, ignorees: 0, paragraphes: 0 };
     const exemples = [];
+    const erreurs = [];
+    const journal = [];
     const cibles = [];
     const vus = new Set();
     for (const c of liste) {
       const cle = `${c.type}|${c.i}`;
       if (vus.has(cle)) continue;
       vus.add(cle);
-      if (c.type === 'style-normal') { cibles.push({ c }); continue; } // style du document, pas un paragraphe
+      if (c.type === 'style-normal') { cibles.push({ c }); continue; }
       const para = paras.items[c.i];
       const bloc = doc.blocs[c.i];
       if (!para || !bloc || comparable(para.text) !== comparable(bloc.texte)) {
-        // Déjà dans l'état attendu (correction appliquée par un clic précédent) : rien à faire, pas une erreur.
-        const attendu = bloc && AVEC_APERCU.has(c.type) ? apercu(c, bloc) : null;
-        if (para && attendu !== null && comparable(para.text) === comparable(attendu)) { dejaCorriges++; continue; }
-        decales++;
+        const attendu = bloc ? apercu(c, bloc, parametres) : null;
+        if (para && attendu !== null && comparable(para.text) === comparable(attendu)) { compte.dejaCorriges++; continue; }
+        compte.decales++;
         if (exemples.length < 3) exemples.push(`¶ ${c.i + 1} : ${para ? `${para.text.length} caractères lus contre ${bloc ? bloc.texte.length : '?'}` : 'introuvable'}`);
         continue;
       }
+      if (c.type === 'guillemets' && !pairesGuillemets(bloc.texte)) { compte.ignorees++; continue; }
       cibles.push({ c, para, bloc });
     }
+    compte.paragraphes = new Set(cibles.filter((x) => x.para).map((x) => x.c.i)).size;
 
-    // Paragraphe entier remplacé (intitulés) : le style de titre de référence est appliqué s'il est connu.
-    // Paragraphe entier remplacé : intitulés renommés, numéro retiré d'un sous-titre (texte vérifié par l'aperçu).
-    for (const { c, para, bloc } of cibles.filter((x) => x.c.type === 'renommer' || x.c.type === 'sans-numero')) {
-      const texte = apercu(c, bloc);
-      if (texte === null) continue;
-      para.insertText(texte.trim(), 'Replace');
-      if (c.style) para.styleBuiltIn = c.style;
-      corrections++;
-    }
-    if (cibles.some((x) => x.c.type === 'style-normal')) {
-      const normal = context.document.getStyles().getByNameOrNullObject('Normal');
-      normal.load('isNullObject');
+    // Intitulés renommés : paragraphe réécrit, mise en forme du paragraphe réappliquée.
+    try {
+      const entiers = cibles.filter((x) => x.c.type === 'renommer');
+      entiers.forEach((x) => x.para.load(PROPRIETES.map((p) => `font/${p}`).join(',')));
+      if (entiers.length) await context.sync();
+      for (const { c, para, bloc } of entiers) {
+        const police = {};
+        for (const x of PROPRIETES) police[x] = para.font[x];
+        const nouveau = para.insertText(c.texte, 'Replace');
+        for (const x of PROPRIETES) if (police[x] !== null && police[x] !== undefined) nouveau.font[x] = police[x];
+        if (c.style) para.styleBuiltIn = c.style;
+        journal.push({ i: c.i, entier: { avant: bloc.texte, police } });
+        compte.corrections++;
+      }
       await context.sync();
-      if (!normal.isNullObject) { normal.font.size = parametres.taille_texte; corrections++; }
+    } catch (e) {
+      erreurs.push(`renommer : ${e.message}`);
     }
 
-    // Recherches dans les paragraphes.
-    const recherches = cibles.filter((x) => !['renommer', 'sans-numero', 'style-normal', 'trier'].includes(x.c.type));
-    // Un remplacement à la fois par paragraphe, puis relecture du texte réel : Word en ligne décale les
-    // remplacements groupés d'un même paragraphe. Une erreur de Word sur un type n'empêche pas les autres.
-    const erreurs = [];
+    if (cibles.some((x) => x.c.type === 'style-normal')) {
+      try {
+        const normal = context.document.getStyles().getByNameOrNullObject('Normal');
+        normal.load('isNullObject,font/size');
+        await context.sync();
+        if (!normal.isNullObject) {
+          journal.push({ style: { nom: 'Normal', taille: normal.font.size } });
+          normal.font.size = parametres.taille_texte;
+          await context.sync();
+          compte.corrections++;
+        }
+      } catch (e) {
+        erreurs.push(`style Normal : ${e.message}`);
+      }
+    }
+
+    // Remplacements dans le texte, type par type, un par paragraphe et par passe.
+    const recherches = cibles.filter((x) => x.para && x.c.type !== 'renommer');
     for (const type of new Set(recherches.map((x) => x.c.type))) {
       try {
-        // Guillemets : seulement si les paires étaient sans ambiguïté au contrôle.
-        let actives = recherches.filter((x) => x.c.type === type && (type !== 'guillemets' || pairesGuillemets(x.bloc.texte)));
-        ignorees += recherches.filter((x) => x.c.type === type).length - actives.length;
-        for (let passe = 0; passe < 80 && actives.length; passe++) {
-          if (passe > 0) { actives.forEach((x) => x.para.load('text')); await context.sync(); }
-          const lots = [];
+        let actives = recherches.filter((x) => x.c.type === type);
+        for (let passe = 0; passe < 120 && actives.length; passe++) {
+          // Texte relu à chaque passe : un type précédent a pu modifier le même paragraphe.
+          actives.forEach((x) => x.para.load('text'));
+          await context.sync();
+          const travaux = [];
           for (const x of actives) {
-            const courant = passe > 0 ? { ...x.bloc, texte: x.para.text.replace(/[\r\u0007\u000b]/g, ' ') } : x.bloc;
-            const r = remplacements(x.c, courant, parametres).find(Boolean);
-            if (!r) continue;
-            const res = x.para.search(r.cherche, { matchCase: true, ...(r.options || {}) });
-            res.load('items/text');
-            lots.push({ x, res, r });
+            const texte = nettoyer(x.para.text);
+            const r = remplacements(x.c, texte, parametres)[0];
+            if (r) travaux.push({ ...x, i: x.c.i, r });
           }
-          if (!lots.length) break;
-          await context.sync();
-          const suite = [];
-          for (const { x, res, r } of lots) {
-            if (!res.items.length) continue; // passage introuvable : paragraphe abandonné
-            trouves++;
-            res.items[0].insertText(r.remplace(res.items[0].text), 'Replace');
-            corrections++;
-            if (!['numero-simple'].includes(type)) suite.push(x);
-          }
-          await context.sync();
-          actives = suite;
+          if (!travaux.length) break;
+          const faits = await unePasse(context, travaux, compte);
+          journal.push(...faits);
+          const encore = new Set(faits.map((f) => f.i));
+          actives = actives.filter((x) => encore.has(x.c.i));
         }
       } catch (e) {
         erreurs.push(`${type} : ${e.message}${e.debugInfo?.errorLocation ? ` (${e.debugInfo.errorLocation})` : ''}`);
       }
     }
+    return { ...compte, exemples, erreurs, journal };
+  });
+}
+
+/** Annule les remplacements d'un journal, du dernier au premier, mise en forme comprise. */
+export async function annuler(journal) {
+  return Word.run(async (context) => {
+    const paras = context.document.body.paragraphs;
+    paras.load('items/text');
     await context.sync();
-    return { corrections, decales, ignorees, trouves, dejaCorriges, paragraphes: cibles.length, exemples, erreurs };
+    const compte = { corrections: 0, introuvables: 0, mixtes: 0 };
+    const erreurs = [];
+    for (const f of [...journal].reverse()) {
+      try {
+        if (f.style) {
+          const st = context.document.getStyles().getByNameOrNullObject(f.style.nom);
+          st.load('isNullObject');
+          await context.sync();
+          if (!st.isNullObject && f.style.taille) { st.font.size = f.style.taille; await context.sync(); compte.corrections++; }
+          continue;
+        }
+        const para = paras.items[f.i];
+        if (!para) { compte.introuvables++; continue; }
+        if (f.entier) {
+          const nouveau = para.insertText(f.entier.avant, 'Replace');
+          for (const x of PROPRIETES) if (f.entier.police[x] !== null && f.entier.police[x] !== undefined) nouveau.font[x] = f.entier.police[x];
+          await context.sync();
+          compte.corrections++;
+          continue;
+        }
+        // Remplacement inverse : retrouver le contexte corrigé et y remettre le passage d'origine.
+        const inverse = { cherche: apres(f.r), debut: f.r.debut, longueur: f.r.nouveau.length, nouveau: f.r.cherche.slice(f.r.debut, f.r.debut + f.r.longueur) };
+        if (!inverse.cherche.trim()) { compte.introuvables++; continue; }
+        await unePasse(context, [{ para, i: f.i, r: inverse }], compte);
+      } catch (e) {
+        erreurs.push(e.message);
+      }
+    }
+    return { ...compte, erreurs };
   });
 }
 
@@ -232,4 +343,21 @@ export async function selectionnerPlage(i, j) {
     await context.sync();
     return true;
   });
+}
+
+/** Empreinte du texte du document : sert à savoir s'il a changé depuis le dernier contrôle. */
+export async function empreinte() {
+  return Word.run(async (context) => {
+    const corps = context.document.body;
+    corps.load('text');
+    await context.sync();
+    return signature(corps.text);
+  });
+}
+
+export function signature(texte) {
+  let h = 0;
+  const t = (texte || '').replace(/\s+/g, ' ');
+  for (let k = 0; k < t.length; k++) h = (h * 31 + t.charCodeAt(k)) | 0;
+  return `${t.length}:${h}`;
 }

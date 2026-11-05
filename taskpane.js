@@ -2,13 +2,13 @@
 
 import { lireDocx } from './sources/docx.js';
 import { lireWord, selectionnerParagraphe } from './sources/office.js';
-import { corriger, apercu, selectionnerPlage, LIBELLES, AVEC_APERCU } from './sources/correction.js';
+import { corriger, annuler, apercu, selectionnerPlage, empreinte, LIBELLES } from './sources/correction.js';
 import { controler } from './moteur/moteur.js';
 import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Typographie', R: 'Restes de travail' };
-const VERSION = '0.7.0';
+const VERSION = '0.8.0';
 
 const etat = {
   profil: 'notice', termes: [], ignores: {},
@@ -59,6 +59,18 @@ async function demarrer() {
       if (etat.dernier) afficherAlertes(etat.dernier);
     });
   }
+  // Retour dans le volet après une modification du document (frappe, Ctrl+Z…) : signaler des alertes périmées.
+  const verifierFraicheur = async () => {
+    if (!etat.dansWord || etat.doc?.source !== 'word' || !etat.empreinte || etat.enCours) return;
+    try {
+      const e = await empreinte();
+      $('perime').hidden = e === etat.empreinte;
+      if (e !== etat.empreinte) etat.journal = null; // annulation par journal impossible sur un texte modifié
+    } catch { /* lecture impossible : rien à signaler */ }
+  };
+  window.addEventListener('focus', verifierFraicheur);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) verifierFraicheur(); });
+  $('relancer').addEventListener('click', () => { etat.retour = null; lireOuvert(); });
   $('tout-replier').addEventListener('click', () => { etat.ouvertes.clear(); document.querySelectorAll('.regle[open]').forEach((d) => { d.open = false; }); });
   $('pied').textContent = `Garde-fou ${VERSION}. Règles du ${regles.version}. ${regles.reference}.`;
   $('version').textContent = `v${VERSION}`;
@@ -250,6 +262,8 @@ async function lireOuvert() {
     if (etat.cleDoc !== 'w:' + etat.nomDoc) etat.ouvertes.clear();
     etat.cleDoc = 'w:' + etat.nomDoc;
     afficher(performance.now() - debut);
+    $('perime').hidden = true;
+    try { etat.empreinte = await empreinte(); } catch { etat.empreinte = null; }
   } catch (e) {
     etat.erreur = `${e.name || 'Erreur'} : ${e.message}${e.code ? ` (${e.code})` : ''}`;
     statut(`Lecture impossible : ${etat.erreur}.${etat.doc ? ' Les résultats affichés sont ceux de la lecture précédente.' : ''}`, true);
@@ -329,6 +343,9 @@ function afficher(duree) {
   $('mesures-vide').hidden = mesures.length > 0;
   $('infos').replaceChildren(...mesures.map((x) => el('li', { class: 'mesure' }, el('span', { class: 'id' }, x.regle), el('span', {}, x.texte))));
   $('pagination-bloc').hidden = !r.pagination.length;
+  $('pagination-total').textContent = r.pagination.total
+    ? `Environ ${r.pagination.total} pages à l'affichage, page de garde comprise (estimation en lignes ; le PDF fait foi). La colonne « 2 400 car. » donne la mesure de la Note pour les limites de volume.`
+    : '';
   $('pagination').replaceChildren(...r.pagination.map((l) => el('tr', { class: `n${l.niveau}` },
     el('td', {}, l.intitule), el('td', {}, `p. ${l.page}`), el('td', {}, pages(l.pages)))));
 
@@ -355,7 +372,10 @@ function afficherAlertes(r) {
   $('retour').hidden = !retour;
   if (retour) {
     $('retour').className = `retour${retour.erreur ? ' erreur' : ''}`;
-    $('retour').replaceChildren(el('strong', {}, retour.texte), retour.details ? el('span', { class: 'details' }, retour.details) : null);
+    $('retour').replaceChildren(el('strong', {}, retour.texte), retour.details ? el('span', { class: 'details' }, retour.details) : null,
+      retour.annulable && etat.journal?.length
+        ? el('button', { type: 'button', class: 'geste fort annuler', onclick: annulerDerniere }, 'Annuler la dernière correction')
+        : null);
   }
   const conformes = [];
   const blocs = [];
@@ -436,35 +456,33 @@ function carteRegle(x) {
 const enWord = () => etat.doc?.source === 'word' && etat.dansWord;
 
 /** Aperçu « avant → après » d'une liste de corrections, puis application sur confirmation. */
+/** Aperçu « avant → après » de chaque paragraphe, puis application sur confirmation. */
 function apercuCorrections(liste, conteneur) {
-  const lignes = liste.map((c) => {
-    const b = etat.doc.blocs[c.i];
-    const apres = b ? apercu(c, b) : null;
-    return el('li', {}, el('span', { class: 'avant' }, b ? b.texte.trim() : ''),
-      apres === null ? el('span', { class: 'discret' }, 'laissé tel quel (cas ambigu)') : el('span', { class: 'apres' }, `→ ${apres.trim()}`));
-  });
-  const applicables = liste.filter((c) => etat.doc.blocs[c.i] && apercu(c, etat.doc.blocs[c.i]) !== null);
-  conteneur.replaceChildren(el('div', { class: 'apercu' },
-    el('p', { class: 'discret' }, 'Aperçu : vérifier chaque ligne avant d\'appliquer (Ctrl+Z dans Word pour annuler ensuite).'),
-    el('ul', {}, ...lignes),
-    el('span', { class: 'gestes' },
-      el('button', { type: 'button', class: 'principal petit', onclick: () => appliquer(applicables) }, `Appliquer (${applicables.length})`),
-      el('button', { type: 'button', class: 'geste', onclick: () => conteneur.replaceChildren() }, 'Annuler'))));
-}
-
-/** Bouton de correction : aperçu pour les changements de texte, confirmation en deux temps sinon. */
-function boutonCorriger(liste, libelle, conteneur) {
-  const types = new Set(liste.map((c) => c.type));
-  const bouton = el('button', { class: 'auto', type: 'button' }, libelle);
-  bouton.addEventListener('click', () => {
-    if ([...types].some((t) => AVEC_APERCU.has(t))) { apercuCorrections(liste, conteneur); return; }
-    const nb = new Set(liste.map((c) => c.i)).size;
-    conteneur.replaceChildren(el('div', { class: 'confirmation' },
-      el('p', {}, `${[...types].map((t) => LIBELLES[t]).join(' ; ')} : ${types.has('style-normal') ? 'style du document' : `${nb} paragraphe(s)`} modifié(s) dans le document. Ctrl+Z dans Word pour annuler.`),
+  const p = etat.regles.parametres;
+  if (liste.every((c) => c.type === 'style-normal')) {
+    conteneur.replaceChildren(el('div', { class: 'apercu' },
+      el('p', {}, `Le style Normal passera en taille ${p.taille_texte} : tous les paragraphes sans mise en forme directe changent d'un coup.`),
       el('span', { class: 'gestes' },
         el('button', { type: 'button', class: 'principal petit', onclick: () => appliquer(liste) }, 'Appliquer'),
         el('button', { type: 'button', class: 'geste', onclick: () => conteneur.replaceChildren() }, 'Annuler'))));
-  });
+    return;
+  }
+  const vues = liste.map((c) => ({ c, b: etat.doc.blocs[c.i] })).map((x) => ({ ...x, apres: x.b ? apercu(x.c, x.b, p) : null }));
+  const applicables = vues.filter((x) => x.apres !== null).map((x) => x.c);
+  const nb = new Set(applicables.map((c) => c.i)).size;
+  conteneur.replaceChildren(el('div', { class: 'apercu' },
+    el('p', { class: 'discret' }, `${nb} paragraphe(s) seront modifiés. Vérifier les lignes ; la mise en forme d'origine est conservée, et « Annuler la dernière correction » rétablit tout en un clic.`),
+    el('ul', {}, ...vues.map((x) => el('li', {}, el('span', { class: 'avant' }, x.b ? x.b.texte.trim() : ''),
+      x.apres === null ? el('span', { class: 'discret' }, 'laissé tel quel (rien à changer ou cas ambigu)') : el('span', { class: 'apres' }, `→ ${x.apres.trim()}`)))),
+    el('span', { class: 'gestes' },
+      el('button', { type: 'button', class: 'principal petit', onclick: () => appliquer(applicables) }, `Appliquer à ${nb} paragraphe(s)`),
+      el('button', { type: 'button', class: 'geste', onclick: () => conteneur.replaceChildren() }, 'Annuler'))));
+}
+
+/** Bouton de correction : ouvre toujours l'aperçu avant toute modification. */
+function boutonCorriger(liste, libelle, conteneur) {
+  const bouton = el('button', { class: 'auto', type: 'button' }, libelle);
+  bouton.addEventListener('click', () => apercuCorrections(liste, conteneur));
   return bouton;
 }
 
@@ -478,8 +496,10 @@ function blocAuto(x) {
     return el('div', { class: 'bloc-auto' }, el('p', { class: 'indication-auto' }, `Correction en un clic quand le document est ouvert dans Word : ${[...parType.keys()].map((t) => LIBELLES[t]).join(' ; ')}.`));
   }
   const apercuZone = el('div', {});
-  const boutons = [...parType].map(([type, liste]) => boutonCorriger(liste,
-    `Corriger : ${LIBELLES[type]}${type === 'style-normal' ? '' : ` (${liste.length})`}`, apercuZone));
+  const boutons = [...parType].map(([type, liste]) => {
+    const nb = new Set(liste.map((c) => c.i)).size;
+    return boutonCorriger(liste, `Corriger : ${LIBELLES[type]}${type === 'style-normal' ? '' : ` (${nb} paragraphe${nb > 1 ? 's' : ''})`}`, apercuZone);
+  });
   return el('div', { class: 'bloc-auto' }, ...boutons, apercuZone);
 }
 
@@ -491,19 +511,22 @@ async function appliquer(liste) {
   statut('Correction en cours…');
   try {
     const r = await corriger(liste, etat.doc, etat.regles.parametres);
-    const details = [`${r.paragraphes} paragraphe(s) traité(s), ${r.trouves} passage(s) trouvé(s)`];
+    const details = [];
     if (r.dejaCorriges) details.push(`${r.dejaCorriges} paragraphe(s) déjà corrigé(s)`);
-    if (r.decales) details.push(`${r.decales} paragraphe(s) laissé(s) : texte différent de la dernière lecture (${r.exemples.join(' ; ')}) — relancer le contrôle`);
+    if (r.decales) details.push(`${r.decales} paragraphe(s) laissé(s) : texte modifié depuis le contrôle (${r.exemples.join(' ; ')}), relancer le contrôle`);
+    if (r.mixtes) details.push(`${r.mixtes} passage(s) en mise en forme mixte laissé(s) tels quels`);
+    if (r.introuvables) details.push(`${r.introuvables} passage(s) introuvable(s)`);
     if (r.ignorees) details.push(`${r.ignorees} cas ambigu(s) laissé(s)`);
     if (r.erreurs?.length) details.push(`refusé par Word : ${r.erreurs.join(' ; ')}`);
+    if (r.journal?.length) etat.journal = r.journal;
     etat.retour = r.corrections || (r.dejaCorriges && !r.decales)
-      ? { texte: !r.corrections ? 'Déjà corrigé : rien à changer.' : `${r.corrections} correction(s) appliquée(s) dans le document. Ctrl+Z dans Word pour annuler.`, details: details.join(' · ') }
-      : { erreur: true, texte: 'Aucune correction appliquée.', details: `${details.join(' · ')}. Relancer le contrôle ; si le problème persiste, copier le diagnostic (Réglages).` };
-    etat.dernierRapport = { liste: liste.length, types: [...new Set(liste.map((c) => c.type))], ...r };
+      ? { texte: !r.corrections ? 'Déjà corrigé : rien à changer.' : `${r.corrections} remplacement(s) dans ${r.paragraphes} paragraphe(s), mise en forme conservée.`, details: details.join(' · '), annulable: !!r.journal?.length }
+      : { erreur: true, texte: 'Aucune correction appliquée.', details: `${details.join(' · ') || 'rien trouvé'}. Relancer le contrôle ; si le problème persiste, copier le diagnostic (Réglages).` };
+    etat.dernierRapport = { liste: liste.length, types: [...new Set(liste.map((c) => c.type))], ...r, journal: r.journal?.length };
     await lireOuvert();
     // Montrer la correction dans le document : premier paragraphe corrigé sélectionné.
-    const premier = liste.find((c) => c.i !== undefined && c.i >= 0);
-    if (r.corrections && premier) await aller(premier.i);
+    const premier = r.journal?.find((f) => f.i !== undefined);
+    if (premier) await aller(premier.i);
   } catch (e) {
     etat.retour = { erreur: true, texte: `Correction impossible : ${e.message}`, details: 'Document protégé, en lecture seule, ou fonction absente de cette version de Word. Copier le diagnostic (Réglages).' };
     etat.dernierRapport = { erreur: `${e.name} : ${e.message}${e.code ? ` (${e.code})` : ''}`, debug: e.debugInfo ? JSON.stringify(e.debugInfo).slice(0, 400) : null };
@@ -516,6 +539,28 @@ async function appliquer(liste) {
   $('retour').scrollIntoView({ block: 'nearest' });
 }
 
+/** Annule en un clic la dernière correction (tous ses remplacements), mise en forme comprise. */
+async function annulerDerniere() {
+  if (etat.enCours || !etat.journal?.length) return;
+  etat.enCours = true;
+  document.body.classList.add('correction-en-cours');
+  statut('Annulation en cours…');
+  try {
+    const r = await annuler(etat.journal);
+    etat.journal = null;
+    etat.retour = r.erreurs.length || r.introuvables
+      ? { erreur: true, texte: `Annulation partielle : ${r.corrections} remplacement(s) rétabli(s).`, details: `${r.introuvables} introuvable(s)${r.erreurs.length ? ` ; ${r.erreurs.join(' ; ')}` : ''} : finir avec Ctrl+Z dans Word.` }
+      : { texte: `Dernière correction annulée : ${r.corrections} remplacement(s) rétabli(s).` };
+    await lireOuvert();
+  } catch (e) {
+    etat.retour = { erreur: true, texte: `Annulation impossible : ${e.message}`, details: 'Utiliser Ctrl+Z dans Word.' };
+    if (etat.dernier) afficherAlertes(etat.dernier);
+  } finally {
+    etat.enCours = false;
+    document.body.classList.remove('correction-en-cours');
+  }
+}
+
 async function selectionnerPourTri(plage) {
   try {
     if (await selectionnerPlage(plage.debut, plage.fin)) {
@@ -526,22 +571,26 @@ async function selectionnerPourTri(plage) {
   }
 }
 
-const ICONES = { ok: '✓', alerte: '▲', manuel: '☐', auto: '•' };
+const ICONES = { ok: '✓', alerte: '▲', manuel: '☐', auto: '•', na: '–' };
 
 function afficherExigences() {
   const r = etat.dernier && etat.dernier.profil === etat.profil ? etat.dernier : null;
   const groupes = new Map();
-  const totaux = { ok: 0, alerte: 0, manuel: 0, auto: 0 };
+  const totaux = { ok: 0, alerte: 0, manuel: 0, auto: 0, na: 0 };
   for (const e of etat.regles.exigences.filter((x) => x.profils.includes(etat.profil))) {
     let etatEx = 'manuel';
     let libelle = 'À vérifier vous-même';
     if (e.regles.length) {
       const res = r ? r.resultats.filter((x) => e.regles.includes(x.regle.id)) : [];
-      const n = res.reduce((k, x) => k + x.occurrences.length, 0);
+      // Alertes de la règle qui concernent cette exigence (motif sur le message), pour ne pas compter deux fois.
+      const motif = e.motif ? new RegExp(e.motif, 'i') : null;
+      const n = res.reduce((k, x) => k + x.occurrences.filter((o) => !motif || motif.test(o.message)).length, 0);
+      const nonApplicable = r && !n && r.infos.some((x) => e.regles.includes(x.regle) && /^Non applicable/.test(x.texte));
       const ids = e.regles.join(', ');
       const nonControle = r && r.infos.some((x) => e.regles.includes(x.regle) && /non contr[ôo]l/.test(x.texte));
       if (!r) { etatEx = 'auto'; libelle = `Contrôlé · ${ids}`; }
       else if (n) { etatEx = 'alerte'; libelle = `${n} alerte(s) · ${ids}`; }
+      else if (nonApplicable) { etatEx = 'na'; libelle = 'Non applicable à ce document'; }
       else if (nonControle) { etatEx = 'manuel'; libelle = `Non contrôlé (pièce introuvable) · ${ids}`; }
       else if (res.length && res.every((x) => x.horsSource)) { etatEx = 'manuel'; libelle = 'Sur le .docx seulement'; }
       else { etatEx = 'ok'; libelle = `Sans écart · ${ids}`; }
@@ -578,9 +627,10 @@ function afficherExigences() {
   if (r) {
     $('progression').querySelector('.ok').style.width = `${(100 * totaux.ok) / total}%`;
     $('progression').querySelector('.alerte').style.width = `${(100 * totaux.alerte) / total}%`;
-    $('progression-texte').textContent = `${totaux.ok} sans écart · ${totaux.alerte} en alerte · ${totaux.manuel} à vérifier vous-même, sur ${total}`;
+    $('progression-texte').textContent = `${totaux.alerte + totaux.manuel} à traiter (${totaux.alerte} en alerte, ${totaux.manuel} à vérifier vous-même) · ${totaux.ok} sans écart${totaux.na ? ` · ${totaux.na} non applicable(s)` : ''} · ${total} exigences`;
   }
   $('compte-exigences').textContent = r ? `${totaux.alerte + totaux.manuel}` : '';
+  $('compte-exigences').title = 'Exigences à traiter : en alerte ou à vérifier vous-même';
 }
 
 function ligneOccurrence(o, x) {

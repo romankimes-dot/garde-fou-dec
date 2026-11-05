@@ -72,22 +72,51 @@ export function controler(doc, regles, options) {
   };
 }
 
-/** Pagination estimée : 2 400 caractères par page, nouvelle page à chaque titre de niveau 1. */
+/**
+ * Pagination estimée, de deux façons :
+ * - « pages » : mesure de la Note, 2 400 caractères par page (sert aux limites de volume) ;
+ * - « page » : position à l'affichage, en lignes (90 caractères par ligne, 32 lignes par page en taille 12 et
+ *   interligne 1,5 avec marges de 2,5 cm ; tableaux ligne par ligne ; titres et paragraphes vides comptés ;
+ *   saut de page à chaque titre de niveau 1 et à chaque saut manuel). Page de garde comprise.
+ */
+const CAR_LIGNE = 90;
+const LIGNES_PAGE = 32;
+
 function pagination(doc, S, parPage) {
   const lignes = [];
   let page = 1;
-  let rempli = 0;
-  const debut = doc.blocs.findIndex((b) => !b.garde);
-  if (debut < 0) return lignes;
-  for (const b of doc.blocs.slice(debut)) {
-    if ((b.sautAvant || (b.titre && b.niveau === 1)) && rempli > 0) { page++; rempli = 0; }
-    if (b.titre && b.niveau <= 2 && !S.dans('plan-det', b.i) && !S.dans('plan-synth', b.i)) {
+  let rempli = 0; // lignes déjà occupées sur la page courante
+  const nouvellePage = () => { if (rempli > 0) { page++; rempli = 0; } };
+  const ajouter = (n) => {
+    rempli += n;
+    while (rempli > LIGNES_PAGE) { page++; rempli -= LIGNES_PAGE; }
+  };
+  const premiereApresGarde = doc.blocs.findIndex((b) => !b.garde);
+  // Tableaux : une rangée occupe autant de lignes que sa cellule la plus longue (colonnes côte à côte).
+  const colonnes = new Map();
+  for (const b of doc.blocs) if (b.tableau !== null) colonnes.set(b.tableau, Math.max(colonnes.get(b.tableau) || 1, (b.colonne ?? 0) + 1));
+  let rangee = null;
+  for (const b of doc.blocs) {
+    if (b.i === premiereApresGarde) nouvellePage();
+    if ((b.sautAvant || (b.titre && b.niveau === 1)) && !b.garde) nouvellePage();
+    if (b.titre && b.niveau <= 2 && !b.garde && !S.dans('plan-det', b.i) && !S.dans('plan-synth', b.i)) {
       const car = caracteres(doc.blocs.slice(b.i, b.fin));
       lignes.push({ i: b.i, intitule: b.intitule, niveau: b.niveau, page, pages: car / parPage });
     }
-    if (b.consigne) continue;
-    rempli += b.intitule.length;
-    while (rempli > parPage) { page++; rempli -= parPage; }
+    if (b.tableau !== null) {
+      const largeur = Math.max(10, Math.floor(CAR_LIGNE / colonnes.get(b.tableau)));
+      const cle = `${b.tableau}|${b.ligne}`;
+      const n = Math.max(1, Math.ceil(b.intitule.length / largeur));
+      if (!rangee || rangee.cle !== cle) { if (rangee) ajouter(rangee.n); rangee = { cle, n: 0, cellules: new Map() }; }
+      rangee.cellules.set(b.colonne, (rangee.cellules.get(b.colonne) || 0) + n);
+      rangee.n = Math.max(...rangee.cellules.values());
+      continue;
+    }
+    if (rangee) { ajouter(rangee.n + 0.5); rangee = null; }
+    const n = Math.max(1, Math.ceil(b.intitule.length / CAR_LIGNE));
+    ajouter(n + (b.titre ? 1 : b.texte.trim() ? 0.3 : 0));
   }
+  if (rangee) ajouter(rangee.n);
+  lignes.total = page;
   return lignes;
 }

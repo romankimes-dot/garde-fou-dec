@@ -342,3 +342,10 @@ body.correction-en-cours .confirmation button { pointer-events: none; opacity: .
   padding: 0 6px; font-size: 12px; line-height: 18px; flex: none;
 }
 .regle .aller:hover { background: var(--accent-clair); }
+
+.perime { display: grid; gap: 6px; margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; font-size: 12px; background: var(--orange-fond); color: var(--orange); border: 1px solid currentColor; }
+.perime button { justify-self: start; }
+.retour .annuler { margin-top: 6px; }
+
+.exigence.na .icone, .exigence.na .statut-ex { color: var(--discret); }
+.exigence.na { opacity: .8; }
