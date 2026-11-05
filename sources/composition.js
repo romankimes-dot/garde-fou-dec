@@ -110,12 +110,51 @@ export function planifier(doc, regles, profil) {
     if (sousTitre) { lignes.push({ i: b.i, texte: texte.replace(/^\d+(?:\.\d+)+\.?\s+/, ''), style: 'Soustitrenotice' }); return; }
     lignes.push({ i: b.i, texte, style: 'Normal' });
   });
+  ajouterReperes(lignes, copie, S, profil);
   const liens = copie.blocs.filter((b) => !b.garde && b.tableau === null && (b.liens || []).length).length;
   if (liens) avertissements.push(`${liens} paragraphe(s) avec lien hypertexte : le texte est repris, pas le lien (renvois aux annexes, URL) ; à recréer (Insertion, Lien).`);
   if (images) avertissements.push(`${images} image(s) non reprise(s) : les recopier dans le nouveau document.`);
   const sections = copie.blocs.filter((b) => b.role === 'section-notice').length;
   if (profil === 'notice' && sections < 7) avertissements.push(`${sections} section(s) sur 7 portent l'intitulé exact de la Note : après création, Garde-fou proposera de renommer les autres (règle A09).`);
   return { lignes, avertissements, tableaux: tableaux.size };
+}
+
+// Un repère « [Tableau n à insérer ici] » tient la place du tableau (pas de second repère dans la même section).
+const estTableau = (l) => l && (l.tableau !== undefined || l.tableauTexte || l.planLigne || (l.repere && /^\[Tableau/.test(l.texte)));
+const repere = (texte) => ({ i: null, texte, style: 'Consigne', repere: true });
+
+/**
+ * Repères « [Tableau n à insérer ici] » (style Consigne, signalés par F01 jusqu'à leur remplacement) :
+ * légende « Tableau n – … » sans tableau à sa suite ; sections 3 et 5 de la notice sans tableau (Note, p. 12) ;
+ * annexe n° 1 de la charte IA absente (notice). L'outil n'écrit que le repère, jamais le contenu.
+ */
+function ajouterReperes(lignes, doc, S, profil) {
+  const visibles = () => lignes.filter((l) => !l.omis);
+  // Légende sans tableau.
+  for (const l of visibles()) {
+    const m = l.style === 'Caption' && /^tableau\s*(?:n°\s*)?(\d+)/i.exec(l.texte);
+    if (!m) continue;
+    const v = visibles();
+    const suivant = v[v.indexOf(l) + 1];
+    if (!estTableau(suivant)) lignes.splice(lignes.indexOf(l) + 1, 0, repere(`[Tableau ${m[1]} à insérer ici]`));
+  }
+  if (profil !== 'notice') return;
+  // Sections 3 et 5 : tableau exigé.
+  const objets = { 3: 'tableau de différenciation avec les mémoires les plus proches', 5: 'tableau des outils (numéro d\'ordre dans le plan, nom, nature, objectifs)' };
+  const sections = doc.blocs.filter((b) => b.role === 'section-notice' && objets[b.sectionNotice]);
+  for (const b of sections.reverse()) {
+    const debut = lignes.findIndex((l) => l.i === b.i);
+    if (debut < 0) continue;
+    let fin = lignes.findIndex((l, k) => k > debut && !l.omis && ['Titrenotice', 'Titrehorsplan'].includes(l.style));
+    if (fin < 0) fin = lignes.length;
+    if (lignes.slice(debut + 1, fin).some(estTableau)) continue;
+    const avant = lignes.slice(0, debut).filter(estTableau).length;
+    lignes.splice(fin, 0, repere(`[Tableau ${avant + 1} à insérer ici : ${objets[b.sectionNotice]}]`));
+  }
+  // Annexe n° 1 de la charte IA.
+  if (!S.zone('charte') && !doc.blocs.some((b) => b.role === 'annexe')) {
+    lignes.push(repere('[Annexe 1 à insérer ici : modèle officiel « Annexe n° 1 – Usage de l\'IA » de la charte, complété, daté et signé]'));
+  }
 }
 
 /**
@@ -286,8 +325,11 @@ export async function composer(gabarit, plan, profil, champs) {
 // ---------------------------------------------------------------- tableaux composés
 
 const LARGEUR_TEXTE = 9072; // A4, marges de 2,5 cm : largeur utile en vingtièmes de point
-const GRIS_FONCE = 'D9D9D9';
-const GRIS_CLAIR = 'F2F2F2';
+// Couleurs : bleu ardoise, lisible imprimé en noir et blanc ; jamais de rouge (réservé aux modifications après
+// une décision 4.2, Note p. 13).
+export const COULEURS = { titre: '1F3864', sousTitre: '2E5C8A', fondFort: 'DCE6F2', fondLeger: 'F2F2F2' };
+const GRIS_FONCE = COULEURS.fondFort;
+const GRIS_CLAIR = COULEURS.fondLeger;
 
 /** Paragraphe de cellule (style « Texte tableau ») : { texte, gras, italique, souligne, retrait, centre }. */
 function paragrapheCellule({ texte, gras, italique, souligne, retrait = 0, centre = false, lie = false }) {
@@ -415,7 +457,19 @@ export function ajouterStyles(xml) {
         + `<w:uiPriority w:val="39"/><w:unhideWhenUsed/><w:pPr><w:spacing w:before="0" w:after="60"/><w:ind w:left="${(n - 1) * 240}"/></w:pPr>${n === 1 ? '<w:rPr><w:b/></w:rPr>' : ''}</w:style>`);
     }
   }
-  return ajouts.length ? xml.replace('</w:styles>', `${ajouts.join('')}</w:styles>`) : xml;
+  let sortie = ajouts.length ? xml.replace('</w:styles>', `${ajouts.join('')}</w:styles>`) : xml;
+  for (const id of ['Titrehorsplan', 'Titrehorstable', 'Titrenotice', 'Titreannexe', 'Heading1', 'Heading2']) sortie = colorer(sortie, id, COULEURS.titre);
+  for (const id of ['Soustitrenotice', 'Titrecatégorie', 'Heading3', 'Heading4']) sortie = colorer(sortie, id, COULEURS.sousTitre);
+  return sortie;
+}
+
+/** Couleur du texte d'un style (remplace la couleur existante, sinon l'ajoute en fin des propriétés de caractère). */
+function colorer(xml, id, couleur) {
+  return xml.replace(new RegExp(`<w:style\\b[^>]*w:styleId="${id}"[^>]*>[\\s\\S]*?</w:style>`), (st) => {
+    if (/<w:color\b[^>]*\/>/.test(st)) return st.replace(/<w:color\b[^>]*\/>/, `<w:color w:val="${couleur}"/>`);
+    const rPr = st.lastIndexOf('</w:rPr>');
+    return rPr >= 0 ? `${st.slice(0, rPr)}<w:color w:val="${couleur}"/>${st.slice(rPr)}` : st.replace('</w:style>', `<w:rPr><w:color w:val="${couleur}"/></w:rPr></w:style>`);
+  });
 }
 
 /** Réécrit le .docx du gabarit avec les parties remplacées. */

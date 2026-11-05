@@ -16,7 +16,8 @@ test('notice fictive → document au gabarit : garde remplie, sections, tableaux
   const sortie = await lireDocx(octets);
   const garde = sortie.blocs.filter((b) => b.garde).map((b) => b.texte).join(' | ');
   for (const t of ['Sujet fictif', 'Prénom NOM', '75001 Paris', 'novembre 2026', "Demande d'agrément du sujet de mémoire"]) assert.ok(garde.includes(t), `garde : ${t}`);
-  assert.ok(!sortie.blocs.some((b) => b.consigne), 'aucune consigne du gabarit');
+  // Aucune consigne du gabarit ; seul le repère du tableau des outils (section 5 de la fixture sans tableau).
+  assert.deepEqual(sortie.blocs.filter((b) => b.consigne).map((b) => b.texte.slice(0, 30)), ['[Tableau 2 à insérer ici : tab']);
   // Tableaux repris, plus un tableau par plan (synthétique, détaillé) et par tableau tapé en texte.
   const groupesPlan = plan.lignes.filter((l, k, t) => !l.omis && l.planLigne && !(t.slice(0, k).filter((x) => !x.omis).pop() || {}).planLigne).length;
   const tapes = plan.lignes.filter((l) => l.tableauTexte).length;
@@ -86,4 +87,31 @@ test('notice collée en texte brut : tableaux « | », plans en tableau, légend
   for (const id of ['A10', 'A13']) assert.ok(!r.ids.has(id), r.lignes.filter((l) => l.startsWith(id)).join('\n'));
   assert.ok(!r.lignes.some((l) => /^A12 .*(absent|sans nombre)/.test(l)), r.lignes.filter((l) => l.startsWith('A12')).join('\n'));
   assert.ok(!r.lignes.some((l) => /^B10 .*sans titre/.test(l)), r.lignes.filter((l) => l.startsWith('B10')).join('\n'));
+});
+
+test('repères « à insérer » et couleurs des titres', async () => {
+  const lignes = ["Demande d'agrément du sujet de mémoire présentée en vue de l'obtention du diplôme d'expertise comptable", 'Sujet',
+    'Notice explicative', '1. Intérêt du sujet et problématique', 'Problématique : Comment faire ?',
+    "3. Différenciation avec les autres mémoires d'expertise comptable", 'Texte de la section trois, sans tableau, assez long pour être un paragraphe.',
+    '4. Possibilités d\'atteindre les apports', 'Tableau 2 – Calendrier', 'Texte qui suit la légende sans tableau, assez long pour un paragraphe.',
+    '5. Apports du mémoire à la profession', 'Tableau 3 – Outils', '1 | Outil | Classeur | But | P1 C1 S1', '2 | Outil | Classeur | But | P1 C1 S2',
+    'Bibliographie', 'Référence réglementaire'];
+  const doc = { source: 'word', blocs: lignes.map((texte, i) => ({ i, texte, label: '', titre: false, niveau: 0, role: null, style: null, tableau: null, liens: [], image: false, notes: 0, consigne: false, sautAvant: false, garde: false })) };
+  const plan = planifier(doc, await regles(), 'notice');
+  const reperes = plan.lignes.filter((l) => l.repere).map((l) => l.texte);
+  assert.equal(reperes.length, 3, reperes.join('\n'));
+  assert.match(reperes[0], /^\[Tableau 1 à insérer ici : tableau de différenciation/);
+  assert.equal(reperes[1], '[Tableau 2 à insérer ici]');
+  assert.match(reperes[2], /^\[Annexe 1 à insérer ici/);
+  const octets = await composer(await gabarit('gabarit-demande-agrement.docx'), plan, 'notice', { intitule: 'Sujet', regles: await regles() });
+  const sortie = await lireDocx(octets);
+  assert.equal(sortie.blocs.filter((b) => b.consigne && /à insérer ici/.test(b.texte)).length, 3);
+  const r = await lancer(sortie, { profil: 'notice' });
+  assert.ok(r.lignes.some((l) => /^F01 .*Consigne/.test(l)), 'repères signalés comme restes de travail');
+  assert.ok(!sortie.blocs.some((b) => b.rouge), 'aucun passage pris pour du rouge');
+  const { lireZip } = await import('../sources/zip.js');
+  const styles = await (await lireZip(octets)).texte('word/styles.xml');
+  for (const [id, c] of [['Titrenotice', '1F3864'], ['Titrehorsplan', '1F3864'], ['Soustitrenotice', '2E5C8A'], ['Titrecatégorie', '2E5C8A']]) {
+    assert.ok(new RegExp(`w:styleId="${id}"[\\s\\S]*?<w:color w:val="${c}"/>[\\s\\S]*?</w:style>`).test(styles) && !new RegExp(`w:styleId="${id}"(?:(?!</w:style>)[\\s\\S])*<w:color w:val="000000"/>`).test(styles), id);
+  }
 });

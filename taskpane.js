@@ -9,7 +9,7 @@ import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Typographie', R: 'Restes de travail' };
-const VERSION = '0.12.0';
+const VERSION = '0.13.0';
 
 const etat = {
   profil: 'notice', termes: [], ignores: {}, verifiees: {},
@@ -782,6 +782,7 @@ const NOMS_STYLES = {
   Titrehorsplan: 'Titre de pièce', Titrenotice: 'Section notice', 'Titrecatégorie': 'Catégorie', Titreannexe: 'Annexe',
   Heading1: 'Partie', Heading2: 'Chapitre', Heading3: 'Section', Heading4: '§', Normal: 'Texte', Soustitrenotice: 'Sous-titre notice',
   Caption: 'Légende', Source: 'Source', Listetirets: 'Liste', Referencebiblio: 'Référence',
+  Consigne: 'À insérer (repère)',
 };
 // Genre d'une ligne du plan de mise en forme, pour le décompte et la liste du volet.
 const genreForme = (l) => (l.omis ? null : l.champ ? 'Table (champ Word)' : l.tableau !== undefined ? 'Tableau'

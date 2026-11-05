@@ -33,6 +33,10 @@ Accueil, Compléments, « Plus de compléments », « Mes compléments », « Ch
   | Référence de la bibliographie | Référence bibliographique (retrait suspendu) |
   | Texte | Normal (taille 12, interligne 1,5) |
 
+  Couleurs : titres de pièce, sections de la notice, annexes, parties et chapitres en bleu foncé `#1F3864` ; sous-titres, catégories de la bibliographie, sections et § du mémoire en bleu moyen `#2E5C8A` ; fonds des tableaux `#DCE6F2` (en-têtes, parties) et `#F2F2F2` (chapitres) ; texte courant en noir. Jamais de rouge, réservé aux modifications après une décision 4.2 (Note, p. 13).
+
+  Repères « [Tableau n à insérer ici] » (style Consigne, signalés par F01 tant qu'ils restent) : légende « Tableau n – … » sans tableau à sa suite, section 3 ou 5 de la notice sans tableau, annexe n° 1 de la charte IA absente. L'outil n'écrit que le repère, jamais le contenu.
+
   Tables pré-remplies (entrées et pages estimées, annexes comprises) ; dans le nouveau document, Garde-fou propose « Corriger : mise à jour des tables » pour les pages exactes. Liens hypertextes et images non repris (signalés avant création). Gabarits vierges téléchargeables depuis le même onglet.
 - **Exigences de la Note** : toutes les exigences, contrôlées ou à vérifier soi-même, dépôt compris, et les codes du sujet. Chaque alerte est rattachée à une seule exigence ; une exigence à vérifier soi-même se coche « Marquer vérifié » (mémorisé pour ce document, dans ce navigateur).
 - **Copier les alertes** : règles et messages, passages masqués, pour le calibrage.
