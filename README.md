@@ -49,4 +49,6 @@ Le PDF exporté reste la référence pour la pagination exacte (`scripts/mise-en
 | `sources/` | Lecture du document ouvert (Office.js) ou d'un .docx ; corrections dans Word |
 | `tests/` | Gabarits et documents fictifs (`fabriquer-fixtures.py`), modèle officiel de l'annexe n° 1, tests |
 
+Nouvelle version : `python3 outils/version.py 1.2.3` (volet, manifeste et paramètre `?v=` de chaque fichier chargé, pour que Word ne mélange jamais deux versions en cache).
+
 Tests : `npm test` (Node 22). Aperçu en console : `node tests/apercu.js FICHIER.docx notice depot`.

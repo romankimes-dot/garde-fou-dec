@@ -8,7 +8,7 @@ import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Typographie', R: 'Restes de travail' };
-const VERSION = '0.6.1';
+const VERSION = '0.6.2';
 
 const etat = {
   profil: 'notice', termes: [], ignores: {},
@@ -31,8 +31,8 @@ async function demarrer() {
   const info = typeof Office !== 'undefined' ? await Office.onReady() : { host: null };
   etat.dansWord = info.host === 'Word';
   const [regles, consignes] = await Promise.all([
-    fetch('regles.json').then((r) => r.json()),
-    fetch('consignes.json').then((r) => r.json()).catch(() => []),
+    fetch('regles.json', { cache: 'no-cache' }).then((r) => r.json()),
+    fetch('consignes.json', { cache: 'no-cache' }).then((r) => r.json()).catch(() => []),
   ]);
   regles.consignes = consignes;
   etat.regles = regles;
@@ -41,7 +41,9 @@ async function demarrer() {
     profil: s.profil || 'notice', termes: s.termes || [], ignores: s.ignores || {},
   });
   for (const nom of ['profil']) {
-    document.querySelector(`input[name="${nom}"][value="${etat[nom]}"]`).checked = true;
+    const choisi = document.querySelector(`input[name="${nom}"][value="${etat[nom]}"]`)
+      || document.querySelector(`input[name="${nom}"]`);
+    if (choisi) { choisi.checked = true; etat[nom] = choisi.value; }
     document.querySelectorAll(`input[name="${nom}"]`).forEach((r) => r.addEventListener('change', () => {
       etat[nom] = r.value;
       stockage.ecrire({ [nom]: r.value });
