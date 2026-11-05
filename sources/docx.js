@@ -143,8 +143,16 @@ function analyserPied(xml, styles) {
   const avecPage = paras.find((p) => /\bPAGE\b/.test(tous(p, 'w:instrText').map(texteBrut).join(' ') +
     ' ' + tous(p, 'w:fldSimple').map((f) => f.a['w:instr']).join(' ')));
   const pPr = avecPage ? premier(avecPage, 'w:pPr') : null;
-  const jc = avecPage ? (val(premier(pPr, 'w:jc')) || propriete(styles, val(premier(pPr, 'w:pStyle')), 'jc')) : null;
-  return { numero: !!avecPage, droite: jc === 'right' || jc === 'end' };
+  // Alignement : sur le paragraphe, sinon par son style (identifiant, puis nom « footer » ou « pied de page » :
+  // Word en ligne renvoie le pied avec des identifiants de style qui ne sont pas toujours ceux du fichier).
+  let jc = avecPage ? (val(premier(pPr, 'w:jc')) || propriete(styles, val(premier(pPr, 'w:pStyle')), 'jc')) : null;
+  if (avecPage && !jc) {
+    const pied = [...styles.values()].find((s) => /^(footer|pied de page)$/.test(s.nom));
+    if (pied) jc = propriete(styles, pied.id, 'jc');
+  }
+  // Numéro précédé d'une tabulation vers un taquet droit : aligné à droite aussi.
+  const tabDroit = avecPage && tous(avecPage, 'w:tab').length > 0 && /w:val="right"/.test(JSON.stringify(tous(pPr, 'w:tab').map((t) => t.a)));
+  return { numero: !!avecPage, droite: jc === 'right' || jc === 'end' || !!tabDroit };
 }
 
 /** Pied de page rendu par Office.js (footer.getOoxml()) : paquet plat dont le corps est le pied. */

@@ -120,6 +120,9 @@ def numero_de_page(section, depart=1):
     section.footer.is_linked_to_previous = False
     p = section.footer.paragraphs[0]
     p.style = "Footer"
+    # Alignement à droite posé sur le paragraphe lui-même (en plus du style) : Word en ligne renvoie parfois le
+    # pied de page sans ses styles, et Garde-fou (A19) doit pouvoir lire l'alignement sans eux.
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     champ(p, "PAGE", "1")
     sect = section._sectPr
     for old in sect.findall(qn("w:pgNumType")):

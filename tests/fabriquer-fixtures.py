@@ -118,4 +118,4 @@ if __name__ == "__main__":
     SORTIE.mkdir(exist_ok=True)
     notice()
     memoire()
-    print("fixtures écrites dans", SORTIE.relative_to(RACINE))
+    print("fixtures écrites dans", SORTIE)
