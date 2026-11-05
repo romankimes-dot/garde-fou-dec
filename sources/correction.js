@@ -2,7 +2,8 @@
 // Seules des corrections mécaniques sont proposées, avec aperçu quand le texte change de sens ;
 // chacune s'annule par Ctrl+Z dans Word. Un paragraphe modifié depuis le contrôle est laissé tel quel.
 
-const NBSP = ' ';
+const NBSP = '\u00a0';
+const W = { matchWildcards: true };
 const ACCENTS = { Ere: 'Ère' }; // sinon : E initial → É
 
 export const LIBELLES = {
@@ -59,11 +60,12 @@ export function apercu(c, bloc) {
 function remplacements(c, bloc, parametres) {
   const t = bloc.texte;
   switch (c.type) {
+    // Recherches en mode « caractères génériques » : l'espace est écrite [ ], jamais en tête ou en fin de chaîne.
     case 'insecables':
       return [
-        ...[':', ';', '!', '?'].map((x) => ({ cherche: ` ${x}`, remplace: () => NBSP + x })),
-        { cherche: '« ', remplace: () => `«${NBSP}` },
-        { cherche: ' »', remplace: () => `${NBSP}»` },
+        ...[':', ';', '\\!', '\\?'].map((x) => ({ cherche: `[ ]${x}`, options: W, remplace: (t) => NBSP + t.slice(1) })),
+        { cherche: '«[ ]', options: W, remplace: () => `«${NBSP}` },
+        { cherche: '[ ]»', options: W, remplace: () => `${NBSP}»` },
       ];
     case 'guillemets': {
       const pos = pairesGuillemets(t);
@@ -72,11 +74,11 @@ function remplacements(c, bloc, parametres) {
       return [{ cherche: '"', attendu: pos.length, tous: (x, k) => (k % 2 ? `${NBSP}»` : `«${NBSP}`) }];
     }
     case 'espaces':
-      return [{ cherche: '  ', remplace: () => ' ', repeter: true }, { cherche: ' ,', remplace: () => ',' }];
+      return [{ cherche: '[ ]{2,}', options: W, remplace: () => ' ' }, { cherche: '[ ],', options: W, remplace: () => ',' }];
     case 'unites':
       return ['%', '€'].flatMap((u) => [
-        { cherche: `[0-9]${u}`, options: { matchWildcards: true }, remplace: (x) => x.slice(0, -1) + NBSP + u },
-        { cherche: `[0-9] ${u}`, options: { matchWildcards: true }, remplace: (x) => x[0] + NBSP + u },
+        { cherche: `[0-9]${u}`, options: W, remplace: (x) => x.slice(0, -1) + NBSP + u },
+        { cherche: `[0-9][ ]${u}`, options: W, remplace: (x) => x[0] + NBSP + u },
       ]);
     case 'accents':
       return parametres.majuscules_accentuees.map((m) => ({
@@ -88,14 +90,16 @@ function remplacements(c, bloc, parametres) {
     }
     case 'sans-numero': {
       const m = /^\s*(\d+(?:\.\d+)+\.?)\s+/.exec(t);
-      return m ? [{ cherche: m[0].trimStart(), premier: true, remplace: () => '' }] : [];
+      return m ? [{ cherche: `${m[1]}[ ]`, options: W, premier: true, remplace: () => '' }] : [];
     }
     default:
       return [];
   }
 }
 
-const comparable = (t) => (t || '').replace(/[\r\u0007\u000b]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+// Comparaison tolérante (espaces, insécables, traits d'union conditionnels, caractères de contrôle) : sert à repérer
+// un paragraphe réellement réécrit depuis le contrôle, pas une différence de lecture.
+const comparable = (t) => (t || '').replace(/[\s\u00a0\u202f\u00ad\u200b\u0007\u000b\r]/g, '').slice(0, 50).toLowerCase();
 
 /**
  * Applique des corrections [{ type, i, texte?, style? }] (i : numéro de body.paragraphs).
@@ -109,6 +113,8 @@ export async function corriger(liste, doc, parametres) {
     let decales = 0;
     let ignorees = 0;
     let corrections = 0;
+    let trouves = 0;
+    const exemples = [];
     const cibles = [];
     const vus = new Set();
     for (const c of liste) {
@@ -118,7 +124,11 @@ export async function corriger(liste, doc, parametres) {
       if (c.type === 'style-normal') { cibles.push({ c }); continue; } // style du document, pas un paragraphe
       const para = paras.items[c.i];
       const bloc = doc.blocs[c.i];
-      if (!para || !bloc || comparable(para.text) !== comparable(bloc.texte)) { decales++; continue; }
+      if (!para || !bloc || comparable(para.text) !== comparable(bloc.texte)) {
+        decales++;
+        if (exemples.length < 3) exemples.push(`¶ ${c.i + 1} : ${para ? `${para.text.length} caractères lus contre ${bloc ? bloc.texte.length : '?'}` : 'introuvable'}`);
+        continue;
+      }
       cibles.push({ c, para, bloc });
     }
 
@@ -150,6 +160,7 @@ export async function corriger(liste, doc, parametres) {
       if (!lots.length) break;
       await context.sync();
       let n = 0;
+      for (const { res } of lots) trouves += res.items.length;
       for (const { res, r } of lots) {
         if (r.attendu !== undefined && (res.items.length !== r.attendu || res.items.some((x) => x.text !== '"'))) { ignorees++; continue; }
         const items = r.premier ? res.items.slice(0, 1) : res.items;
@@ -160,7 +171,7 @@ export async function corriger(liste, doc, parametres) {
       corrections += n;
     }
     await context.sync();
-    return { corrections, decales, ignorees };
+    return { corrections, decales, ignorees, trouves, paragraphes: cibles.length, exemples };
   });
 }
 

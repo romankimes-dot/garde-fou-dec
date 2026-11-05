@@ -9,70 +9,122 @@
   <link rel="stylesheet" href="taskpane.css">
 </head>
 <body>
-  <header class="entete">
-    <h1 class="invisible">Garde-fou DEC</h1>
-    <p class="discret">Contrôles de forme, sans IA. Le texte ne quitte pas Word ; le document n'est modifié que sur un clic « Corriger ».</p>
+  <header class="barre">
+    <div class="marque">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3Z" fill="currentColor" opacity=".18"/><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="m8.5 12 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <div>
+        <h1>Garde-fou DEC</h1>
+        <p class="sous-titre">Contrôle de forme, sans IA · Note du jury du 6 juillet 2026</p>
+      </div>
+    </div>
+    <div class="reglages-rapides" aria-label="Document et mode">
+      <div class="segment" role="radiogroup" aria-label="Document">
+        <label><input type="radio" name="profil" value="notice" checked><span>Notice</span></label>
+        <label><input type="radio" name="profil" value="memoire"><span>Mémoire</span></label>
+      </div>
+      <div class="segment" role="radiogroup" aria-label="Mode">
+        <label title="Structure, conformité, typographie"><input type="radio" name="mode" value="redaction" checked><span>Rédaction</span></label>
+        <label title="Tout, restes de travail compris ; les exigences deviennent bloquantes"><input type="radio" name="mode" value="depot"><span>Dépôt</span></label>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="controler-ouvert" class="principal" type="button"><span class="roue" aria-hidden="true"></span><span class="libelle">Contrôler ce document</span></button>
+      <label class="secondaire" for="fichier" title="Fichier, Enregistrer sous, Télécharger une copie">Contrôler un .docx</label>
+      <input id="fichier" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+    </div>
+    <p id="statut" class="statut" role="status" aria-live="polite"></p>
   </header>
 
-  <section class="reglages-rapides" aria-label="Profil et mode">
-    <fieldset class="segment">
-      <legend>Document</legend>
-      <label><input type="radio" name="profil" value="notice" checked><span>Notice</span></label>
-      <label><input type="radio" name="profil" value="memoire"><span>Mémoire</span></label>
-    </fieldset>
-    <fieldset class="segment">
-      <legend>Mode</legend>
-      <label><input type="radio" name="mode" value="redaction" checked><span>Rédaction</span></label>
-      <label><input type="radio" name="mode" value="depot"><span>Dépôt</span></label>
-    </fieldset>
-  </section>
+  <nav class="onglets" role="tablist" aria-label="Sections du volet">
+    <button role="tab" id="onglet-alertes" aria-controls="panneau-alertes" aria-selected="true" type="button">Alertes <span class="compteur" id="compte-alertes"></span></button>
+    <button role="tab" id="onglet-exigences" aria-controls="panneau-exigences" aria-selected="false" type="button">Exigences <span class="compteur" id="compte-exigences"></span></button>
+    <button role="tab" id="onglet-mesures" aria-controls="panneau-mesures" aria-selected="false" type="button">Mesures</button>
+    <button role="tab" id="onglet-reglages" aria-controls="panneau-reglages" aria-selected="false" type="button" aria-label="Réglages" title="Réglages">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+    </button>
+  </nav>
 
-  <section class="actions">
-    <button id="controler-ouvert" class="principal" type="button">Contrôler ce document</button>
-    <label class="secondaire" for="fichier">Contrôler un fichier .docx…</label>
-    <input id="fichier" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
-    <p class="discret aide">Dans Word, la mise en page (marges, taille, interligne, numéro de page) est lue directement ; si la lecture échoue (voir Réglages, Diagnostic), contrôler un .docx : Fichier, Enregistrer sous, Télécharger une copie.</p>
-  </section>
+  <main>
+    <section id="panneau-alertes" role="tabpanel" aria-labelledby="onglet-alertes">
+      <div id="accueil" class="vide">
+        <p class="vide-titre">Aucun contrôle pour l'instant</p>
+        <p>Choisir le document et le mode, puis « Contrôler ce document ». Le texte ne quitte pas Word ; le document n'est modifié que sur un clic « Corriger », annulable par Ctrl+Z.</p>
+      </div>
 
-  <p id="statut" class="statut" role="status" aria-live="polite"></p>
+      <section id="synthese" class="synthese" hidden>
+        <div class="feu" id="feu"><span class="pastille" aria-hidden="true"></span><strong id="feu-texte"></strong><span id="contexte" class="contexte"></span></div>
+        <div class="tuiles">
+          <button type="button" class="tuile bloquant" data-filtre="bloquant"><span class="nombre" id="n-bloquants">0</span><span>bloquants</span></button>
+          <button type="button" class="tuile avertissement" data-filtre="avertissement"><span class="nombre" id="n-avertissements">0</span><span>à vérifier</span></button>
+          <button type="button" class="tuile corrigeable" data-filtre="corrigeable"><span class="nombre" id="n-corrigeables">0</span><span>corrigeables</span></button>
+        </div>
+        <div id="bandeau-profil"></div>
+      </section>
+      <div id="retour" class="retour" role="status" hidden></div>
 
-  <section id="synthese" class="synthese" hidden>
-    <div class="feu" id="feu"><span class="pastille" aria-hidden="true"></span><strong id="feu-texte"></strong></div>
-    <p id="comptes" class="discret"></p>
-    <p id="rappel" class="discret"></p>
-    <button id="copier-alertes" class="copier" type="button" title="Règle, message et forme des passages, mots masqués">Copier les alertes</button>
-  </section>
+      <div id="filtres" class="filtres" hidden role="group" aria-label="Filtrer les alertes">
+        <button type="button" data-filtre="tous" aria-pressed="true">Toutes</button>
+        <button type="button" data-filtre="bloquant" aria-pressed="false">Bloquants</button>
+        <button type="button" data-filtre="avertissement" aria-pressed="false">À vérifier</button>
+        <button type="button" data-filtre="corrigeable" aria-pressed="false">Corrigeables</button>
+        <button type="button" data-filtre="ignorees" aria-pressed="false" id="filtre-ignorees">Ignorées</button>
+        <span class="espace"></span>
+        <button type="button" id="tout-replier" class="discret-bouton" title="Replier toutes les règles">Replier</button>
+      </div>
 
-  <section id="infos" class="infos" hidden></section>
-  <section id="resultats"></section>
+      <section id="resultats"></section>
 
-  <details id="pagination-bloc" class="panneau" hidden>
-    <summary>Pagination estimée</summary>
-    <p class="discret">2 400 caractères par page, saut de page à chaque titre de niveau 1. C'est un minimum : tableaux et figures ajoutent des pages. Le PDF exporté fait foi (scripts/mise-en-forme/controle.py).</p>
-    <table class="pagination"><thead><tr><th>Titre</th><th>Page</th><th>Pages</th></tr></thead><tbody id="pagination"></tbody></table>
-  </details>
+      <div id="pied-alertes" class="pied-alertes" hidden>
+        <button id="copier-alertes" class="discret-bouton" type="button" title="Règles, messages et forme des passages, mots masqués, pour le calibrage">Copier les alertes</button>
+        <span id="compte-ignores" class="discret"></span>
+      </div>
+    </section>
 
-  <details class="panneau" id="exigences-bloc">
-    <summary>Exigences de la Note</summary>
-    <p class="discret">Toutes les exigences de forme connues du complément (Note du jury du 6 juillet 2026), avec ce qui est contrôlé automatiquement et ce qui reste à vérifier soi-même. Le PDF exporté fait foi pour la pagination.</p>
-    <ul id="exigences" class="exigences"></ul>
-  </details>
+    <section id="panneau-exigences" role="tabpanel" aria-labelledby="onglet-exigences" hidden>
+      <div class="intro-panneau">
+        <p>Toutes les exigences de forme de la Note du jury, de la charte IA et du dossier de dépôt : ce que le complément contrôle, et ce qui reste à vérifier vous-même.</p>
+        <div id="progression" class="progression" hidden>
+          <div class="jauge" aria-hidden="true"><span class="ok"></span><span class="alerte"></span></div>
+          <p id="progression-texte" class="discret"></p>
+        </div>
+      </div>
+      <div id="exigences" class="exigences"></div>
+    </section>
 
-  <details class="panneau" id="reglages">
-    <summary>Réglages</summary>
-    <label for="termes" class="titre-champ">Termes du cabinet à ne jamais voir apparaître</label>
-    <p class="discret">Nom, ville, logiciels internes… un terme par ligne. Cette liste reste dans ce navigateur ; elle n'est ni écrite dans le document, ni commitée, ni transmise.</p>
-    <textarea id="termes" rows="5" spellcheck="false"></textarea>
-    <div class="ligne-boutons">
-      <button id="enregistrer-termes" type="button">Enregistrer</button>
-      <button id="oublier-ignores" type="button">Rétablir les occurrences ignorées</button>
-      <button id="copier-diagnostic" type="button">Diagnostic de lecture</button>
-    </div>
-    <p class="discret">Le diagnostic décrit la structure lue (nombre de paragraphes, titres, tableaux) ; « Copier les alertes », sous la synthèse, donne règle, message et forme des passages (mots remplacés par « … », numéros conservés), sans page de garde, termes du cabinet ni restes de travail. À relire avant de les transmettre.</p>
-    <pre id="diagnostic" class="diagnostic" hidden></pre>
-  </details>
+    <section id="panneau-mesures" role="tabpanel" aria-labelledby="onglet-mesures" hidden>
+      <div id="mesures-vide" class="vide"><p>Les mesures (volumes estimés, bibliographie, mise en page) apparaissent après un contrôle.</p></div>
+      <ul id="infos" class="mesures"></ul>
+      <section id="pagination-bloc" class="carte-simple" hidden>
+        <h2 class="titre-section">Pagination estimée</h2>
+        <p class="discret">2 400 caractères par page, saut de page à chaque titre de niveau 1. C'est un minimum : tableaux et figures ajoutent des pages ; le PDF exporté fait foi.</p>
+        <table class="pagination"><thead><tr><th>Titre</th><th>Page</th><th>Pages</th></tr></thead><tbody id="pagination"></tbody></table>
+      </section>
+    </section>
 
-  <footer class="pied discret" id="pied"></footer>
+    <section id="panneau-reglages" role="tabpanel" aria-labelledby="onglet-reglages" hidden>
+      <div class="carte-simple">
+        <label for="termes" class="titre-section">Termes à ne jamais voir apparaître</label>
+        <p class="discret">Cabinet, clients, personnes, villes, logiciels internes… un terme par ligne. La liste reste dans ce navigateur : ni écrite dans le document, ni transmise.</p>
+        <textarea id="termes" rows="5" spellcheck="false"></textarea>
+        <div class="ligne-boutons"><button id="enregistrer-termes" type="button" class="principal petit">Enregistrer</button></div>
+      </div>
+      <div class="carte-simple">
+        <h2 class="titre-section">Occurrences ignorées</h2>
+        <p class="discret">« Ignorer » retire une occurrence pour ce document seulement. Pour les revoir une à une : onglet Alertes, filtre « Ignorées ».</p>
+        <div class="ligne-boutons"><button id="voir-ignorees" type="button">Voir les occurrences ignorées</button><button id="oublier-ignores" type="button">Tout rétablir</button></div>
+      </div>
+      <div class="carte-simple">
+        <h2 class="titre-section">Diagnostic</h2>
+        <p class="discret">Structure lue (paragraphes, titres, tableaux, lecture de la mise en page), sans aucun texte du document.</p>
+        <div class="ligne-boutons"><button id="copier-diagnostic" type="button">Copier le diagnostic de lecture</button></div>
+        <pre id="diagnostic" class="diagnostic" hidden></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer class="pied" id="pied"></footer>
   <script type="module" src="taskpane.js"></script>
 </body>
 </html>

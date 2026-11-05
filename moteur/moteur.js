@@ -42,14 +42,15 @@ export function controler(doc, regles, options) {
     }
     infos.push(...(sortie.infos || []).map((t) => ({ regle: r.id, texte: t })));
     const occurrences = [];
+    const ignorees = [];
     for (const o of sortie.occurrences) {
       o.niveau = niveau === 'bloquant' && o.niveau === 'avertissement' ? 'avertissement' : niveau;
       o.cle = cleOccurrence(r.id, o);
-      if (ignores.has(o.cle)) { ignoresCompte++; continue; }
+      if (ignores.has(o.cle)) { ignoresCompte++; ignorees.push(o); continue; }
       if (o.niveau === 'bloquant') bloquants++; else avertissements++;
       occurrences.push(o);
     }
-    resultats.push({ regle: r, niveau, occurrences });
+    resultats.push({ regle: r, niveau, occurrences, ignorees });
   }
 
   if (profil === 'memoire' && S.zone('notice') && !S.corps) infos.unshift({ regle: '-', texte: 'Ce document ressemble à une notice (titre « Notice explicative », ni introduction ni conclusion) : choisir « Notice » en haut du volet.' });
