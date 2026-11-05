@@ -149,3 +149,12 @@ test('typographie posée à la création : insécables, apostrophe courbe, URL i
   assert.equal(typographier('https://example.org/a?b=c'), 'https://example.org/a?b=c');
   assert.equal(typographier('Déjà\u00a0: bon'), 'Déjà\u00a0: bon');
 });
+
+test('titre de plan de plus de 160 caractères : toujours un titre (mémoire en texte simple)', async () => {
+  const long = 'Partie 3 – ' + 'Mettre en place la tenue au fil de l’exercice avec la filiale, le groupe et le donneur d’ordre, '.repeat(2) + 'et la prouver reproductible';
+  assert.ok(long.length > 160);
+  const lignes = ['Introduction', 'Texte.', 'Partie 1 – A', 'Chapitre 1 – B', long, 'Chapitre 1 – C', 'Conclusion', 'Fin.'];
+  const doc = { source: 'word', blocs: lignes.map((texte, i) => ({ i, texte, label: '', titre: false, niveau: 0, role: null, style: null, tableau: null, liens: [], image: false, notes: 0, consigne: false, sautAvant: false, garde: false })) };
+  const plan = planifier(structuredClone(doc), await regles(), 'memoire');
+  assert.equal(plan.lignes.find((l) => l.texte.startsWith('Mettre en place')).style, 'Heading1');
+});
