@@ -6,7 +6,7 @@
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
   <Id>8013f312-6e73-4266-9329-5b900c844e1e</Id>
-  <Version>0.2.3.0</Version>
+  <Version>0.3.0.0</Version>
   <ProviderName>Roman Kimes</ProviderName>
   <DefaultLocale>fr-FR</DefaultLocale>
   <DisplayName DefaultValue="Garde-fou DEC"/>

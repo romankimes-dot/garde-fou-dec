@@ -2,12 +2,13 @@
 
 import { lireDocx } from './sources/docx.js';
 import { lireWord, selectionnerParagraphe } from './sources/office.js';
+import { corriger } from './sources/correction.js';
 import { controler } from './moteur/moteur.js';
 import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Propreté' };
-const VERSION = '0.2.3';
+const VERSION = '0.3.0';
 
 const etat = {
   profil: 'notice', mode: 'redaction', termes: [], ignores: {},
@@ -44,10 +45,11 @@ async function demarrer() {
     document.querySelectorAll(`input[name="${nom}"]`).forEach((r) => r.addEventListener('change', () => {
       etat[nom] = r.value;
       stockage.ecrire({ [nom]: r.value });
-      if (etat.doc) afficher();
+      if (etat.doc) afficher(); else afficherExigences();
     }));
   }
   $('termes').value = etat.termes.join('\n');
+  afficherExigences();
   $('pied').textContent = `Garde-fou ${VERSION}. Règles du ${regles.version}. ${regles.reference}.`;
 
   $('controler-ouvert').hidden = !etat.dansWord;
@@ -181,6 +183,10 @@ function alertesPourCalibrage() {
       if (liste.length > 3) lignes.push('      …');
     }
   }
+  if (r.infos.length) {
+    lignes.push('', 'Informations');
+    for (const x of r.infos) lignes.push(`  ${x.regle} · ${x.regle === 'A16' ? x.texte.replace(/«[^»]*»/g, '« … »') : x.texte}`);
+  }
   if (r.titres?.length) {
     lignes.push('', `Structure lue (${r.titres.length} titres) : ¶ · niveau · rôle · pièce · forme`);
     for (const t of r.titres.slice(0, 120)) {
@@ -213,8 +219,8 @@ async function lireOuvert() {
     etat.doc = await lireWord();
     etat.erreur = null;
     etat.nomDoc = nomDuDocument();
+    if (etat.cleDoc !== 'w:' + etat.nomDoc) etat.ouvertes.clear();
     etat.cleDoc = 'w:' + etat.nomDoc;
-    etat.ouvertes.clear();
     afficher(performance.now() - debut);
   } catch (e) {
     etat.erreur = `${e.name || 'Erreur'} : ${e.message}${e.code ? ` (${e.code})` : ''}`;
@@ -229,8 +235,8 @@ async function lireFichier(f) {
     etat.doc = await lireDocx(await f.arrayBuffer());
     etat.erreur = null;
     etat.nomDoc = f.name;
+    if (etat.cleDoc !== 'f:' + f.name) etat.ouvertes.clear();
     etat.cleDoc = 'f:' + f.name;
-    etat.ouvertes.clear();
     afficher(performance.now() - debut);
   } catch (e) {
     etat.erreur = e.message;
@@ -270,7 +276,10 @@ function afficher(duree) {
   $('comptes').textContent = `${r.comptes.bloquants} bloquant(s) · ${r.comptes.avertissements} à vérifier · ${r.comptes.ignores} ignoré(s) · ${etat.profil === 'notice' ? 'notice' : 'mémoire'}, mode ${etat.mode === 'depot' ? 'dépôt' : 'rédaction'}`;
 
   $('infos').hidden = !r.infos.length;
-  $('infos').replaceChildren(...r.infos.map((x) => el('p', {}, x.texte)));
+  const choix = r.infos.filter((x) => x.regle === '-');
+  $('infos').replaceChildren(...choix.map((x) => el('p', { class: 'alerte-profil' }, x.texte)),
+    el('details', {}, el('summary', {}, `Mesures et informations (${r.infos.length - choix.length})`),
+      ...r.infos.filter((x) => x.regle !== '-').map((x) => el('p', {}, `${x.regle} · ${x.texte}`))));
 
   const conformes = [];
   const blocs = [];
@@ -289,6 +298,10 @@ function afficher(duree) {
   }
   $('resultats').replaceChildren(...blocs);
 
+  afficherExigences();
+  const aVerifier = etat.regles.exigences.filter((e) => e.profils.includes(etat.profil) && (!e.regles.length || e.manuel)).length;
+  $('rappel').textContent = `${aVerifier} exigence(s) de la Note à vérifier aussi vous-même : voir « Exigences de la Note » plus bas.`;
+
   $('pagination-bloc').hidden = !r.pagination.length;
   $('pagination').replaceChildren(...r.pagination.map((l) => el('tr', { class: `n${l.niveau}` },
     el('td', {}, l.intitule), el('td', {}, `p. ${l.page}`), el('td', {}, pages(l.pages)))));
@@ -304,7 +317,9 @@ function carteRegle(x) {
       el('span', { class: 'nom' }, `${x.regle.id} ${x.regle.titre}`),
       el('span', { class: `badge ${niveau}` }, libelle)),
     el('p', { class: 'base' }, `${x.regle.nature === 'exigence' ? 'Note du jury' : 'Préférence'} : ${x.regle.base}`),
-    el('ul', { class: 'occurrences' }, ...x.occurrences.map((o) => ligneOccurrence(o))));
+    x.regle.corriger ? el('p', { class: 'conseil' }, el('strong', {}, 'Comment corriger : '), x.regle.corriger) : null,
+    blocAuto(x),
+    el('ul', { class: 'occurrences' }, ...x.occurrences.map((o) => ligneOccurrence(o, x))));
   // Repliée par défaut ; l'état ouvert survit au réaffichage (Ignorer, changement de mode).
   carte.open = etat.ouvertes.has(x.regle.id);
   carte.addEventListener('toggle', () => {
@@ -313,7 +328,59 @@ function carteRegle(x) {
   return carte;
 }
 
-function ligneOccurrence(o) {
+const enWord = () => etat.doc?.source === 'word' && etat.dansWord;
+
+/** Correction automatique d'une règle : bouton dans Word (confirmation en deux temps), sinon simple indication. */
+function blocAuto(x) {
+  const auto = x.occurrences.filter((o) => o.auto);
+  if (!x.regle.auto || !auto.length) return null;
+  if (!enWord()) return el('p', { class: 'discret auto' }, `Correction automatique possible (${x.regle.auto.toLowerCase()}) quand le document est ouvert dans Word.`);
+  const indices = auto.flatMap((o) => o.cibles);
+  const bouton = el('button', { class: 'auto', type: 'button' }, `Corriger automatiquement : ${x.regle.auto.toLowerCase()} (${indices.length} paragraphe${indices.length > 1 ? 's' : ''})`);
+  let arme = false;
+  bouton.addEventListener('click', () => {
+    if (!arme) { arme = true; bouton.textContent = 'Confirmer : modifier le document (annulable par Ctrl+Z)'; bouton.classList.add('arme'); return; }
+    corrigerRegle(x.regle.id, indices);
+  });
+  return bouton;
+}
+
+async function corrigerRegle(regle, indices) {
+  statut('Correction en cours…');
+  try {
+    const { corrections, decales } = await corriger(regle, indices, etat.doc, etat.regles.parametres);
+    const msg = `${regle} : ${corrections} correction(s) appliquée(s) dans le document (Ctrl+Z dans Word pour annuler)`
+      + `${decales ? ` ; ${decales} paragraphe(s) modifié(s) depuis le contrôle, laissé(s) tel(s) quel(s)` : ''}.`;
+    await lireOuvert();
+    statut(msg);
+  } catch (e) {
+    statut(`Correction impossible : ${e.message}. Document protégé ou en lecture seule ?`, true);
+  }
+}
+
+function afficherExigences() {
+  const r = etat.dernier && etat.dernier.profil === etat.profil ? etat.dernier : null;
+  const lignes = etat.regles.exigences.filter((e) => e.profils.includes(etat.profil)).map((e) => {
+    let etatEx = 'manuel';
+    let libelle = 'À vérifier vous-même';
+    if (e.regles.length) {
+      const res = r ? r.resultats.filter((x) => e.regles.includes(x.regle.id)) : [];
+      const n = res.reduce((k, x) => k + x.occurrences.length, 0);
+      if (!r) { etatEx = 'auto'; libelle = `Contrôlé (${e.regles.join(', ')})`; }
+      else if (n) { etatEx = 'alerte'; libelle = `${n} alerte(s) (${e.regles.join(', ')})`; }
+      else if (res.length && res.every((x) => x.horsSource)) { etatEx = 'manuel'; libelle = 'Sur le .docx seulement'; }
+      else if (!res.length) { etatEx = 'auto'; libelle = `Contrôlé en mode dépôt (${e.regles.join(', ')})`; }
+      else { etatEx = 'ok'; libelle = `Sans écart (${e.regles.join(', ')})`; }
+    }
+    return el('li', { class: `exigence ${etatEx}` },
+      el('span', { class: 'statut-ex' }, libelle),
+      el('span', {}, `${e.texte} (${e.page}).`),
+      e.manuel ? el('span', { class: 'discret' }, e.manuel) : null);
+  });
+  $('exigences').replaceChildren(...lignes);
+}
+
+function ligneOccurrence(o, x) {
   const allerPossible = etat.doc.source === 'word' && o.i !== null;
   const extrait = o.extrait
     ? (allerPossible
@@ -323,7 +390,9 @@ function ligneOccurrence(o) {
   return el('li', { class: `occurrence ${o.niveau}` },
     el('p', { class: 'message' }, o.message),
     extrait,
-    el('button', { class: 'ignorer', type: 'button', title: 'Ne plus signaler cette occurrence pour ce document', onclick: () => ignorer(o.cle) }, 'Ignorer'));
+    el('span', { class: 'gestes' },
+      o.auto && enWord() ? el('button', { class: 'ignorer', type: 'button', title: x.regle.auto, onclick: () => corrigerRegle(x.regle.id, o.cibles) }, 'Corriger') : null,
+      el('button', { class: 'ignorer', type: 'button', title: 'Ne plus signaler cette occurrence pour ce document', onclick: () => ignorer(o.cle) }, 'Ignorer')));
 }
 
 async function aller(i) {

@@ -11,7 +11,7 @@
 <body>
   <header class="entete">
     <h1 class="invisible">Garde-fou DEC</h1>
-    <p class="discret">Contrôles de forme, sans IA. Le texte ne quitte pas Word.</p>
+    <p class="discret">Contrôles de forme, sans IA. Le texte ne quitte pas Word ; le document n'est modifié que sur un clic « Corriger ».</p>
   </header>
 
   <section class="reglages-rapides" aria-label="Profil et mode">
@@ -31,7 +31,7 @@
     <button id="controler-ouvert" class="principal" type="button">Contrôler ce document</button>
     <label class="secondaire" for="fichier">Contrôler un fichier .docx…</label>
     <input id="fichier" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
-    <p class="discret aide">Le .docx (Fichier, Enregistrer sous, Télécharger une copie) permet en plus le contrôle de la mise en page : marges, taille, interligne, numéro de page.</p>
+    <p class="discret aide">Dans Word, la mise en page (marges, taille, interligne, numéro de page) est lue directement ; si la lecture échoue (voir Réglages, Diagnostic), contrôler un .docx : Fichier, Enregistrer sous, Télécharger une copie.</p>
   </section>
 
   <p id="statut" class="statut" role="status" aria-live="polite"></p>
@@ -39,6 +39,7 @@
   <section id="synthese" class="synthese" hidden>
     <div class="feu" id="feu"><span class="pastille" aria-hidden="true"></span><strong id="feu-texte"></strong></div>
     <p id="comptes" class="discret"></p>
+    <p id="rappel" class="discret"></p>
     <button id="copier-alertes" class="copier" type="button" title="Règle, message et forme des passages, mots masqués">Copier les alertes</button>
   </section>
 
@@ -49,6 +50,12 @@
     <summary>Pagination estimée</summary>
     <p class="discret">2 400 caractères par page, saut de page à chaque titre de niveau 1. C'est un minimum : tableaux et figures ajoutent des pages. Le PDF exporté fait foi (scripts/mise-en-forme/controle.py).</p>
     <table class="pagination"><thead><tr><th>Titre</th><th>Page</th><th>Pages</th></tr></thead><tbody id="pagination"></tbody></table>
+  </details>
+
+  <details class="panneau" id="exigences-bloc">
+    <summary>Exigences de la Note</summary>
+    <p class="discret">Toutes les exigences de forme connues du complément (Note du jury du 6 juillet 2026), avec ce qui est contrôlé automatiquement et ce qui reste à vérifier soi-même. Le PDF exporté fait foi pour la pagination.</p>
+    <ul id="exigences" class="exigences"></ul>
   </details>
 
   <details class="panneau" id="reglages">

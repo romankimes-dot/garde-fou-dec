@@ -6,11 +6,14 @@ import { normaliser, cleTitre, extrait, masquerUrl, nombre, pages } from './text
 import { estTexte, caracteres, lirePlan } from './structure.js';
 
 const AV = 'avertissement';
+// `cibles` : paragraphes visés par une alerte regroupée ; `auto` : correction automatique possible dans Word.
 const occ = (b, message, opts = {}) => ({
   i: b ? b.i : null,
   extrait: b ? extrait(b.intitule, opts.pos || 0) : opts.extrait || '',
   message,
   niveau: opts.niveau,
+  cibles: opts.cibles || (b ? [b.i] : []),
+  auto: !!opts.auto,
 });
 
 // ---------------------------------------------------------------- A. Conformité à la Note du jury
@@ -124,7 +127,7 @@ function A06(doc, S, { profil }) {
       continue;
     }
     const pl = lirePlan(lab);
-    if (pl && pl.decimal) decimaux.push({ b, pl });
+    if (pl && pl.decimal) decimaux.push({ b, pl, tape: /(partie|chapitre|section|paragraphe|§)\s*\d+(\.\d+)+/i.test(b.texte) });
     if (!b.titre || b.role !== 'plan' || b.niveau < 1 || b.niveau > 4) continue;
     if (!pl) {
       if (doc.labelsLus) sansNumero++;
@@ -138,7 +141,9 @@ function A06(doc, S, { profil }) {
   // Numéro décimal (« Section 1.2 ») : une seule alerte pour l'ensemble, sur le premier.
   if (decimaux.length) {
     const { b, pl } = decimaux[0];
-    o.push(occ(b, `${decimaux.length} intitulé(s) à numéro décimal (« ${nomMot(pl.mot)} ${pl.brut} ») : numéro simple attendu (« ${nomMot(pl.mot)} ${pl.numero} »), la Note proscrivant le découpage 1.1.`, { niveau: AV }));
+    const tapes = decimaux.filter((d) => d.tape).map((d) => d.b.i);
+    o.push(occ(b, `${decimaux.length} intitulé(s) à numéro décimal (« ${nomMot(pl.mot)} ${pl.brut} ») : numéro simple attendu (« ${nomMot(pl.mot)} ${pl.numero} »), la Note proscrivant le découpage 1.1.`,
+      { niveau: AV, cibles: decimaux.map((d) => d.b.i), auto: tapes.length > 0 }));
   }
   const infos = doc.labelsLus ? [] : ['Numéros automatiques non lus : seuls les numéros tapés sont contrôlés. Contrôle complet sur le .docx.'];
   return { occurrences: o, infos };
@@ -221,13 +226,35 @@ function sectionsNotice(S) {
   return r;
 }
 
+/** Premier titre (hors sections reconnues) dont l'intitulé approche un des motifs, du plus précis au plus large. */
+function titreProche(candidats, proches, pris) {
+  for (const motif of proches || []) {
+    const re = new RegExp(motif);
+    const t = candidats.find((c) => !pris.has(c.i) && re.test(cleTitre(c.intitule)));
+    if (t) return t;
+  }
+  return null;
+}
+
 function A09(doc, S, { p }) {
   const o = [];
   const s = sectionsNotice(S);
   let dernier = -1;
+  // Titres de la notice qui pourraient tenir lieu des sections manquantes (niveau le plus haut d'abord).
+  const dansNotice = S.titres.filter((t) => t.role !== 'zone' && t.role !== 'section-notice'
+    && (!S.notice || (t.i >= S.notice.debut && t.i < S.notice.fin)))
+    .sort((a, b) => a.niveau - b.niveau || a.i - b.i);
+  const pris = new Set();
   p.notice_sections.forEach((def, k) => {
     const t = s[k + 1];
-    if (!t) { o.push(occ(null, `Section ${k + 1} « ${def.titre} » absente.`)); return; }
+    if (!t) {
+      const proche = titreProche(dansNotice, def.proches, pris);
+      if (proche) {
+        pris.add(proche.i);
+        o.push(occ(proche, `Section ${k + 1} « ${def.titre} » absente ; titre approchant : à renommer « ${k + 1}. ${def.titre} » si son contenu y répond.`));
+      } else o.push(occ(null, `Section ${k + 1} « ${def.titre} » absente : à rédiger (ordre imposé, après la section ${k}).`));
+      return;
+    }
     if (t.i < dernier) o.push(occ(t, `Section ${k + 1} placée avant la section ${k} : ordre imposé.`));
     dernier = Math.max(dernier, t.i);
     const contenu = S.blocsDe(t.i + 1, t.fin).filter((b) => (estTexte(b) || b.tableau !== null) && b.texte.trim());
@@ -239,17 +266,18 @@ function A09(doc, S, { p }) {
 function A10(doc, S) {
   const o = [];
   const s = sectionsNotice(S);
+  const infos = [];
   for (const [n, objet] of [[3, 'tableau de différenciation avec les mémoires les plus proches'], [5, 'tableau des outils (numéro d\'ordre dans le plan, nom, nature, objectifs)']]) {
     const t = s[n];
-    if (!t) continue;
+    if (!t) { infos.push(`Section ${n} non trouvée : présence du ${objet} non contrôlée.`); continue; }
     if (!S.blocsDe(t.i + 1, t.fin).some((b) => b.tableau !== null)) o.push(occ(t, `Section ${n} sans tableau : ${objet} attendu.`));
   }
-  return { occurrences: o, infos: [] };
+  return { occurrences: o, infos };
 }
 
 function A11(doc, S) {
   const t = sectionsNotice(S)[1];
-  if (!t) return { occurrences: [], infos: [] };
+  if (!t) return { occurrences: [], infos: ['Section 1 non trouvée : problématique (question unique) non contrôlée.'] };
   const questions = [];
   for (const b of S.blocsDe(t.i + 1, t.fin)) {
     if (!estTexte(b)) continue;
@@ -295,6 +323,9 @@ function A12(doc, S, { p }) {
   for (const [type, blocs] of parType) {
     if (blocs.length <= 3) blocs.forEach((b) => o.push(occ(b, 'Nombre prévisionnel de pages absent sur cette ligne.')));
     else o.push(occ(blocs[0], `${blocs.length} lignes « ${nomMot(type)} » sans nombre prévisionnel de pages (exigé à chaque niveau).`));
+  }
+  if (valeurs.some((v) => v.pl && v.pl.niveau === 3) && !valeurs.some((v) => v.pl && v.pl.niveau === 4)) {
+    o.push(occ(z.titre, 'Aucun paragraphe (« § n ») dans le plan détaillé : niveaux attendus Partie / Chapitre / Section / Paragraphe, outils cités dans les paragraphes concernés.', { niveau: AV }));
   }
   if (!intro) o.push(occ(z.titre, 'Introduction absente du plan détaillé (avec son nombre de pages).'));
   if (!conclusion) o.push(occ(z.titre, 'Conclusion absente du plan détaillé (avec son nombre de pages).'));
@@ -458,7 +489,14 @@ function A18(doc, S, { p }) {
     if (b.consigne || !b.texte.trim()) continue;
     if (b.titre && b.role === 'categorie') {
       courante = { b, n: b.categorie || null, entrees: [] };
-      if (!courante.n) o.push(occ(b, 'Catégorie non prévue par la Note (six catégories fixées).'));
+      if (!courante.n) {
+        const cle = cleTitre(b.intitule);
+        const k = p.bibliographie_categories.findIndex((c) => (c.proches || []).some((m) => new RegExp(m).test(cle)));
+        courante.proche = k >= 0 ? k + 1 : null;
+        o.push(occ(b, k >= 0
+          ? `Intitulé hors des six catégories de la Note : à remplacer par « ${p.bibliographie_categories[k].titre} » (ou répartir ses références).`
+          : 'Intitulé hors des six catégories de la Note : répartir ses références entre les six catégories.'));
+      }
       cats.push(courante);
     } else if (!b.titre) {
       if (courante) courante.entrees.push(b);
@@ -477,7 +515,7 @@ function A18(doc, S, { p }) {
   for (const c of cats) {
     total += c.entrees.length;
     if (!c.entrees.length) { o.push(occ(c.b, 'Catégorie vide : la supprimer ou la compléter.', { niveau: AV })); continue; }
-    const def = c.n ? p.bibliographie_categories[c.n - 1] : null;
+    const def = c.n || c.proche ? p.bibliographie_categories[(c.n || c.proche) - 1] : null;
     if (!def || !def.alpha) continue;
     for (let k = 1; k < c.entrees.length; k++) {
       const a = normaliser(c.entrees[k - 1].texte);
@@ -488,37 +526,61 @@ function A18(doc, S, { p }) {
       }
     }
   }
-  return { occurrences: o, infos: [`Bibliographie : ${total} référence(s) dans ${cats.length} catégorie(s) (la Note juge une trentaine suffisante).`] };
+  const exactes = new Set(cats.map((c) => c.n).filter(Boolean));
+  const ordre = p.bibliographie_categories.map((c, k) => `${k + 1}. ${c.titre}${exactes.has(k + 1) ? ' ✓' : ''}`).join(' ; ');
+  return { occurrences: o, infos: [`Bibliographie : ${total} référence(s) dans ${cats.length} catégorie(s) (la Note juge une trentaine suffisante). Catégories et ordre de la Note : ${ordre}.`] };
 }
 
 function A19(doc, S, { p }) {
   const mp = doc.miseEnPage;
-  if (!mp) return { occurrences: [], infos: ['Mise en page contrôlable sur le .docx seulement.'] };
+  if (!mp) {
+    return { occurrences: [], infos: ['Mise en page non lue dans ce Word : contrôler le .docx (Fichier, Enregistrer sous, Télécharger une copie).'] };
+  }
   const o = [];
   const cm = (v) => v.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+  // Marges : une alerte par écart distinct, sur la première section concernée.
+  const marges = new Map();
   mp.sections.forEach((s, k) => {
     for (const [cote, v] of [['gauche', s.gauche], ['droite', s.droite]]) {
-      if (v !== null && Math.abs(v - 2.5) > 0.05) o.push(occ(doc.blocs[s.premierBloc] || null, `Section ${k + 1} du document : marge ${cote} de ${cm(v)} cm, 2,5 cm attendus.`));
+      if (v === null || v === undefined || Math.abs(v - p.marge_cm) <= 0.05) continue;
+      const cle = `${cote}|${cm(v)}`;
+      if (!marges.has(cle)) marges.set(cle, { cote, v, sections: [], b: doc.blocs[s.premierBloc] || null });
+      marges.get(cle).sections.push(k + 1);
     }
   });
-  const apresGarde = mp.sections.length > 1 ? mp.sections.slice(1) : mp.sections;
-  if (!apresGarde.some((s) => s.pieds.some((f) => f.numero))) o.push(occ(null, 'Aucun numéro de page dans les pieds de page.'));
-  else if (!apresGarde.some((s) => s.pieds.some((f) => f.numero && f.droite))) o.push(occ(null, 'Numéro de page non aligné à droite.'));
-  if (mp.normal.taille && mp.normal.taille !== 12) o.push(occ(null, `Style Normal en taille ${mp.normal.taille}, 12 attendu.`));
-  if (mp.normal.interligne && Math.abs(mp.normal.interligne - 1.5) > 0.01) o.push(occ(null, `Style Normal en interligne ${cm(mp.normal.interligne)}, 1,5 attendu.`));
-  const exemptes = new Set(p.styles_exemptes);
-  let n = 0;
-  for (const b of doc.blocs) {
-    if (!estTexte(b) || b.tableau !== null || exemptes.has(b.style) || !b.direct) continue;
-    const tailles = b.direct.tailles.filter((t) => t !== 12);
-    const il = b.direct.interligne;
-    if (tailles.length || (il && Math.abs(il - 1.5) > 0.01)) {
-      n++;
-      if (n <= 15) o.push(occ(b, `Mise en forme directe : ${tailles.length ? `taille ${tailles.join(', ')}` : ''}${tailles.length && il ? ' ; ' : ''}${il && Math.abs(il - 1.5) > 0.01 ? `interligne ${cm(il)}` : ''}.`));
-    }
+  for (const x of marges.values()) {
+    o.push(occ(x.b, `Marge ${x.cote} de ${cm(x.v)} cm, ${cm(p.marge_cm)} cm attendus (section${x.sections.length > 1 ? 's' : ''} ${x.sections.join(', ')} du document).`));
   }
-  if (n > 15) o.push(occ(null, `… et ${n - 15} autre(s) paragraphe(s) en mise en forme directe.`));
-  return { occurrences: o, infos: [] };
+  if (mp.sections.length && mp.sections.every((s) => s.pieds !== null)) {
+    const apresGarde = mp.sections.length > 1 ? mp.sections.slice(1) : mp.sections;
+    if (!apresGarde.some((s) => s.pieds.some((f) => f.numero))) o.push(occ(null, 'Aucun numéro de page dans les pieds de page : Insertion, Numéro de page, Bas de page, à droite.'));
+    else if (!apresGarde.some((s) => s.pieds.some((f) => f.numero && f.droite))) o.push(occ(null, 'Numéro de page non aligné à droite.'));
+  }
+
+  // Texte courant : taille et interligne affichés, regroupés par style.
+  const exemptes = new Set(p.styles_exemptes);
+  const groupes = new Map();
+  let lus = 0;
+  for (const b of mp.paragraphes === false ? [] : doc.blocs) {
+    if (!estTexte(b) || b.tableau !== null || exemptes.has(b.style) || !b.effectif) continue;
+    lus++;
+    const tailles = b.effectif.tailles.filter((t) => t !== null && t !== p.taille_texte);
+    const il = b.effectif.interligne;
+    const ecartIl = il !== null && il !== undefined && Math.abs(il - p.interligne) > 0.01;
+    if (!tailles.length && !ecartIl) continue;
+    const motif = [tailles.length ? `taille ${tailles.join(', ')}` : '', ecartIl ? `interligne ${cm(il)}` : ''].filter(Boolean).join(', ');
+    const cle = `${b.style || 'sans style'}|${motif}`;
+    if (!groupes.has(cle)) groupes.set(cle, { style: b.style || 'sans style', motif, blocs: [] });
+    groupes.get(cle).blocs.push(b);
+  }
+  for (const g of [...groupes.values()].sort((a, b) => b.blocs.length - a.blocs.length)) {
+    o.push(occ(g.blocs[0], `${g.blocs.length} paragraphe(s) de style « ${g.style} » en ${g.motif} (attendu : taille ${p.taille_texte}, interligne ${cm(p.interligne)}).`));
+  }
+  const infos = [`Mise en page : ${mp.sections.length} section(s) lue(s), ${lus} paragraphe(s) de texte courant contrôlé(s) ; tableaux, légendes et notes non contrôlés.`];
+  if (mp.sections.some((s) => s.gauche === null)) infos.push('Marges non lues dans ce Word : les contrôler sur le .docx.');
+  if (mp.paragraphes === false) infos.push('Taille et interligne paragraphe par paragraphe : contrôler le .docx (lecture du document ouvert incomplète).');
+  if (mp.normal.taille && mp.normal.taille !== p.taille_texte) infos.push(`Style Normal : taille ${mp.normal.taille} ; le corriger (Accueil, Styles, clic droit sur Normal, Modifier) règle la plupart des paragraphes d'un coup.`);
+  return { occurrences: o, infos };
 }
 
 // ---------------------------------------------------------------- B. Structure
@@ -687,6 +749,9 @@ function B08(doc, S, { p }) {
 
 const RESTES = /\bTODO\b|\bFIXME\b|\bXXX\b|SOURCE À TROUVER|\?\?|\[(?:[^\]]{2,}|…|\.\.\.)\]/g;
 
+// Anonymisation volontaire (secret professionnel) : pas un reste de travail.
+const ANONYME = /^\[(?:anonymi[sz][eé]e?s?|confidentiel(?:le)?|nom masqué|x+|\*+)\]$/i;
+
 function dansGuillemets(t, pos) {
   const avant = t.slice(0, pos);
   return (avant.match(/«/g) || []).length > (avant.match(/»/g) || []).length;
@@ -703,6 +768,7 @@ function F01(doc, S) {
     }
     for (const m of b.intitule.matchAll(RESTES)) {
       if (m[0].startsWith('[') && /^\[(…|\.\.\.)\]$/.test(m[0]) && dansGuillemets(b.intitule, m.index)) continue;
+      if (ANONYME.test(m[0])) continue;
       o.push(occ(b, `Reste de travail : « ${m[0].length > 40 ? m[0].slice(0, 40) + '…' : m[0]} ».`, { pos: m.index }));
     }
   }
@@ -760,7 +826,8 @@ function F04(doc, S) {
     if (anglais >= 0) noter('guillemets anglais : « » en premier niveau', anglais);
     if (ecarts.size) {
       const [premiere] = ecarts.values();
-      o.push(occ(b, [...ecarts.keys()].join(' ; ') + '.', { pos: premiere }));
+      const auto = [...ecarts.keys()].some((k) => k.startsWith('espace ordinaire') || k.startsWith('espace insécable'));
+      o.push(occ(b, [...ecarts.keys()].join(' ; ') + '.', { pos: premiere, auto }));
     }
   }
   return { occurrences: o, infos: [] };
@@ -775,8 +842,8 @@ function F05(doc, S) {
     const chercher = (re, msg) => { const m = re.exec(t); if (m) { ecarts.push(msg); if (pos === null) pos = m.index; } };
     chercher(/\S[   ]{2,}\S/, 'espaces doublés');
     chercher(/ [,.](?!\.\.)/, 'espace avant une virgule ou un point');
-    chercher(/,,|;;|::|(?<!\.)\.\.(?!\.)|,\.|\.,/, 'ponctuation doublée');
-    if (ecarts.length) o.push(occ(b, ecarts.join(' ; ') + '.', { pos }));
+    chercher(/,,|;;|::|(?<!\.)\.\.(?!\.)|,\.|(?<!(?:^|[\s(])(?:al|etc|cf|coll|vol|art|éd|ed|p|pp|n|ibid|cit|op|dir))\.,/, 'ponctuation doublée');
+    if (ecarts.length) o.push(occ(b, ecarts.join(' ; ') + '.', { pos, auto: ecarts.some((e) => e === 'espaces doublés') || / ,/.test(t) }));
   }
   return { occurrences: o, infos: [] };
 }
@@ -790,7 +857,7 @@ function F06(doc, S, { p }) {
     let pos = null;
     for (const m of t.matchAll(mots)) { trouves.push(m[1]); pos ??= m.index; }
     for (const m of t.matchAll(/(?:^|[.!?…]\s+)(A)\s+(?=\p{Ll})/gu)) { trouves.push('A → À'); pos ??= m.index; }
-    if (trouves.length) o.push(occ(b, `Majuscule sans accent : ${[...new Set(trouves)].join(', ')}.`, { pos: pos || 0 }));
+    if (trouves.length) o.push(occ(b, `Majuscule sans accent : ${[...new Set(trouves)].join(', ')}.`, { pos: pos || 0, auto: trouves.some((x) => x !== 'A → À') }));
   }
   return { occurrences: o, infos: [] };
 }
@@ -807,7 +874,7 @@ function F07(doc, S) {
     chercher(/\d (%|€)/, 'espace insécable attendue avant % ou €');
     chercher(/(?<![\d.,/\-–\p{L}])\d{5,}(?![\d/\-–\p{L}])/u, 'milliers non séparés (1 000 000)');
     chercher(/(?<![\d.])\d{1,3}(?:\.\d{3})+(?![\d.])/, 'point comme séparateur de milliers');
-    if (ecarts.length) o.push(occ(b, ecarts.join(' ; ') + '.', { pos }));
+    if (ecarts.length) o.push(occ(b, ecarts.join(' ; ') + '.', { pos, auto: /\d ?[%€]/.test(t) }));
   }
   return { occurrences: o, infos: [] };
 }

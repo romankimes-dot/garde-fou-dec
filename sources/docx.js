@@ -133,6 +133,24 @@ function creerNumeroteur({ nums, abstraits }) {
   };
 }
 
+/** Pied de page : contient-il un champ PAGE, et est-il aligné à droite ? */
+function analyserPied(xml, styles) {
+  const paras = tous(analyserXml(xml), 'w:p');
+  const avecPage = paras.find((p) => /\bPAGE\b/.test(tous(p, 'w:instrText').map(texteBrut).join(' ') +
+    ' ' + tous(p, 'w:fldSimple').map((f) => f.a['w:instr']).join(' ')));
+  const pPr = avecPage ? premier(avecPage, 'w:pPr') : null;
+  const jc = avecPage ? (val(premier(pPr, 'w:jc')) || propriete(styles, val(premier(pPr, 'w:pStyle')), 'jc')) : null;
+  return { numero: !!avecPage, droite: jc === 'right' || jc === 'end' };
+}
+
+/** Pied de page rendu par Office.js (footer.getOoxml()) : paquet plat dont le corps est le pied. */
+export async function piedPlat(xml) {
+  const paquet = paquetPlat(xml);
+  const { styles } = lireStyles(await paquet.texte('word/styles.xml'));
+  const corps = await paquet.texte('word/document.xml');
+  return corps ? analyserPied(corps, styles) : { numero: false, droite: false };
+}
+
 function lireRelations(xml) {
   const rel = new Map();
   if (!xml) return rel;
@@ -163,11 +181,16 @@ function lireContenu(p, compte) {
         case 'w:pPr': case 'w:delText': case 'w:instrText':
           if (x.n === 'w:instrText' && champs.length) champs[champs.length - 1].instr += texteBrut(x);
           break;
-        case 'w:rPr': {
-          const sz = premier(x, 'w:sz');
-          if (sz) tailles.add(Number(val(sz)) / 2);
+        case 'w:rPr': break;
+        case 'w:r': {
+          // Taille de chaque passage écrit : directe (w:sz) ou celle du style (« style »).
+          const sz = premier(premier(x, 'w:rPr'), 'w:sz');
+          const avant = texte.length;
+          marcher(x, lien);
+          if (texte.slice(avant).trim()) tailles.add(sz ? Number(val(sz)) / 2 : 'style');
           break;
         }
+        case 'mc:AlternateContent': marcher(premier(x, 'mc:Choice') || { c: [] }, lien); break;
         case 'w:t': ajouter(x.c.filter((y) => typeof y === 'string').join(''), lien); break;
         case 'w:tab': ajouter('\t', lien); break;
         case 'w:br': case 'w:cr':
@@ -201,7 +224,15 @@ function lireContenu(p, compte) {
           }
           break;
         }
-        case 'w:drawing': case 'w:pict': case 'w:object': image = true; break;
+        case 'w:drawing': case 'w:pict': case 'w:object': {
+          // Image véritable (photo, logo) ou simple forme ; le texte des zones de texte est lu.
+          if (tous(x, 'pic:pic').length || tous(x, 'v:imagedata').length || tous(x, 'a:blip').length) image = true;
+          for (const zone of tous(x, 'w:txbxContent')) {
+            const t = texteDesParagraphes(zone).join(' ');
+            if (t.trim()) ajouter(` ${t} `, lien);
+          }
+          break;
+        }
         case 'w:footnoteReference': notes++; break;
         case 'w:ins': case 'w:moveTo': compte.revisions++; marcher(x, lien); break;
         case 'w:del': case 'w:moveFrom': compte.revisions++; break;
@@ -218,7 +249,25 @@ function texteDesParagraphes(racine) {
 }
 
 export async function lireDocx(donnees) {
-  const zip = await lireZip(donnees);
+  return lirePaquet(await lireZip(donnees), 'docx');
+}
+
+/**
+ * Paquet « Flat OPC » rendu par Office.js (body.getOoxml()) : mêmes parties qu'un .docx, dans un seul XML.
+ * Seules les parties XML sont gardées ; les images (binaires) sont ignorées.
+ */
+export function paquetPlat(xml) {
+  const parties = new Map();
+  const re = /<pkg:part\b[^>]*pkg:name="([^"]+)"[^>]*>([\s\S]*?)<\/pkg:part>/g;
+  let m;
+  while ((m = re.exec(xml))) {
+    const d = /<pkg:xmlData>([\s\S]*)<\/pkg:xmlData>/.exec(m[2]);
+    if (d) parties.set(m[1].replace(/^\//, ''), d[1]);
+  }
+  return { noms: [...parties.keys()], async texte(nom) { return parties.get(nom) ?? null; } };
+}
+
+export async function lirePaquet(zip, source = 'docx') {
   const docXml = await zip.texte('word/document.xml');
   if (!docXml) throw new Error("Ce fichier n'est pas un document Word (.docx).");
   const { styles, defauts, defaut } = lireStyles(await zip.texte('word/styles.xml'));
@@ -283,8 +332,14 @@ export async function lireDocx(donnees) {
       sautAvant: sautEnAttente || !!propriete(styles, styleId, 'saut'),
       garde: false,
       direct: {
-        tailles: [...contenu.tailles],
+        tailles: [...contenu.tailles].filter((t) => t !== 'style'),
         interligne: spacing && val(spacing, 'w:line') ? interligne(spacing) : null,
+      },
+      // Valeurs affichées par Word : directe, sinon style (chaîne basedOn), sinon valeurs par défaut du document.
+      effectif: {
+        tailles: [...new Set([...contenu.tailles].map((t) => (t === 'style' ? (propriete(styles, styleId, 'taille') ?? defauts.taille) : t)))],
+        interligne: (spacing && val(spacing, 'w:line') ? interligne(spacing) : null)
+          ?? propriete(styles, styleId, 'interligne') ?? defauts.interligne,
       },
     };
     sautEnAttente = contenu.saut;
@@ -330,13 +385,7 @@ export async function lireDocx(donnees) {
       const cible = relations.get(ref.a['r:id']);
       const xml = cible ? await zip.texte('word/' + cible.replace(/^\/?word\//, '')) : null;
       if (!xml) continue;
-      const r = analyserXml(xml);
-      const paras = tous(r, 'w:p');
-      const avecPage = paras.find((p) => /\bPAGE\b/.test(tous(p, 'w:instrText').map(texteBrut).join(' ') +
-        ' ' + tous(p, 'w:fldSimple').map((f) => f.a['w:instr']).join(' ')));
-      const pPr = avecPage ? premier(avecPage, 'w:pPr') : null;
-      const jc = avecPage ? (val(premier(pPr, 'w:jc')) || propriete(styles, val(premier(pPr, 'w:pStyle')), 'jc')) : null;
-      pieds.push({ type: ref.a['w:type'] || 'default', numero: !!avecPage, droite: jc === 'right' || jc === 'end' });
+      pieds.push({ type: ref.a['w:type'] || 'default', ...analyserPied(xml, styles) });
     }
     return {
       n,
@@ -348,6 +397,11 @@ export async function lireDocx(donnees) {
   };
   const miseEnPageSections = [];
   for (let n = 0; n < sections.length; n++) miseEnPageSections.push(await lireSection(sections[n], n));
+  // Une section sans pied de page d'un type reprend celui de la section précédente (comportement de Word).
+  for (let n = 1; n < miseEnPageSections.length; n++) {
+    const s = miseEnPageSections[n];
+    for (const f of miseEnPageSections[n - 1].pieds) if (!s.pieds.some((x) => x.type === f.type)) s.pieds.push({ ...f, herite: true });
+  }
 
   const normal = defaut ? styles.get(defaut) : null;
   const entetes = [];
@@ -382,7 +436,7 @@ export async function lireDocx(donnees) {
   }
 
   return {
-    source: 'docx',
+    source,
     blocs,
     tableaux,
     notes,

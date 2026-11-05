@@ -43,6 +43,11 @@ export function lirePlan(intitule) {
   return { mot: m[1], niveau: MOT_NIVEAU[m[1]], numero: Number(nombres[nombres.length - 1]), decimal: nombres.length > 1, brut: m[2] };
 }
 
+function capitales(t) {
+  const lettres = t.match(/\p{L}/gu) || [];
+  return lettres.length >= 4 && (t.match(/\p{Lu}/gu) || []).length / lettres.length > 0.8;
+}
+
 function ressembleTitre(b) {
   const t = b.texte.trim();
   return t.length > 0 && t.length <= 160 && !/[.;,]$/.test(t) && b.tableau === null && !ENTREE_DE_TABLE.test(t);
@@ -82,6 +87,10 @@ export function analyserStructure(doc, regles) {
       } else if (categorie >= 0 && (b.titre || b.role === 'categorie' || /^\d\s*[.)-]/.test(n) || cle.length < 45)) {
         b.titre = true; b.role = 'categorie'; b.niveau = 3; b.categorie = categorie + 1;
       } else if (b.role === 'categorie') { b.titre = true; b.niveau = 3; }
+      else if (zoneCourante === 'biblio' && !b.titre && (/^\d\s*[.)-]/.test(n) || capitales(b.texte))) {
+        // Intitulé de catégorie hors des six de la Note : repéré pour le signaler, pas pris pour une référence.
+        b.titre = true; b.role = 'categorie'; b.niveau = 3; b.categorie = null;
+      }
       else if (b.titre && (b.role === 'plan' || b.role === 'autre' || !b.role)) {
         b.role = 'plan';
         if (plan) b.niveau = b.niveau || plan.niveau;
