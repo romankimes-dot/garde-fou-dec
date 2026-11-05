@@ -153,3 +153,13 @@ textarea {
   margin: 6px 0 0; padding: 6px; font: 11px ui-monospace, Menlo, monospace; white-space: pre-wrap;
   background: var(--fond); border: 1px solid var(--bord); border-radius: 6px; user-select: all;
 }
+
+.bloc-auto { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 10px 8px; }
+.bloc-auto button.auto { margin: 0; }
+.apercu { border: 1px solid var(--bord); border-radius: 6px; padding: 6px 8px; margin-top: 4px; background: var(--fond); font-size: 12px; }
+.apercu ul { list-style: none; margin: 4px 0; padding: 0; max-height: 260px; overflow: auto; }
+.apercu li { display: grid; gap: 1px; padding: 4px 0; border-top: 1px solid var(--bord); }
+.apercu .avant { color: var(--discret); text-decoration: line-through; }
+.apercu .apres { color: var(--texte); }
+.groupe-ex { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--discret); padding: 10px 0 2px; list-style: none; }
+.codes { margin: 2px 0 6px; padding-left: 16px; font-size: 11.5px; }

@@ -2,13 +2,13 @@
 
 import { lireDocx } from './sources/docx.js';
 import { lireWord, selectionnerParagraphe } from './sources/office.js';
-import { corriger } from './sources/correction.js';
+import { corriger, apercu, selectionnerPlage, LIBELLES, AVEC_APERCU } from './sources/correction.js';
 import { controler } from './moteur/moteur.js';
 import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Propreté' };
-const VERSION = '0.3.1';
+const VERSION = '0.4.0';
 
 const etat = {
   profil: 'notice', mode: 'redaction', termes: [], ignores: {},
@@ -300,6 +300,7 @@ function afficher(duree) {
 
   afficherExigences();
   const aVerifier = etat.regles.exigences.filter((e) => e.profils.includes(etat.profil) && (!e.regles.length || e.manuel)).length;
+  // (exigences non contrôlables ou contrôlées en partie)
   $('rappel').textContent = `${aVerifier} exigence(s) de la Note à vérifier aussi vous-même : voir « Exigences de la Note » plus bas.`;
 
   $('pagination-bloc').hidden = !r.pagination.length;
@@ -330,54 +331,110 @@ function carteRegle(x) {
 
 const enWord = () => etat.doc?.source === 'word' && etat.dansWord;
 
-/** Correction automatique d'une règle : bouton dans Word (confirmation en deux temps), sinon simple indication. */
-function blocAuto(x) {
-  const auto = x.occurrences.filter((o) => o.auto);
-  if (!x.regle.auto || !auto.length) return null;
-  if (!enWord()) return el('p', { class: 'discret auto' }, `Correction automatique possible (${x.regle.auto.toLowerCase()}) quand le document est ouvert dans Word.`);
-  const indices = auto.flatMap((o) => o.cibles);
-  const bouton = el('button', { class: 'auto', type: 'button' }, `Corriger automatiquement : ${x.regle.auto.toLowerCase()} (${indices.length} paragraphe${indices.length > 1 ? 's' : ''})`);
+/** Aperçu « avant → après » d'une liste de corrections, puis application sur confirmation. */
+function apercuCorrections(liste, conteneur) {
+  const lignes = liste.map((c) => {
+    const b = etat.doc.blocs[c.i];
+    const apres = b ? apercu(c, b) : null;
+    return el('li', {}, el('span', { class: 'avant' }, b ? b.texte.trim() : ''),
+      apres === null ? el('span', { class: 'discret' }, 'laissé tel quel (cas ambigu)') : el('span', { class: 'apres' }, `→ ${apres.trim()}`));
+  });
+  const applicables = liste.filter((c) => etat.doc.blocs[c.i] && apercu(c, etat.doc.blocs[c.i]) !== null);
+  conteneur.replaceChildren(el('div', { class: 'apercu' },
+    el('p', { class: 'discret' }, 'Aperçu : vérifier chaque ligne avant d\'appliquer (Ctrl+Z dans Word pour annuler ensuite).'),
+    el('ul', {}, ...lignes),
+    el('span', { class: 'gestes' },
+      el('button', { type: 'button', class: 'auto arme', onclick: () => appliquer(applicables) }, `Appliquer (${applicables.length})`),
+      el('button', { type: 'button', class: 'ignorer', onclick: () => conteneur.replaceChildren() }, 'Annuler'))));
+}
+
+/** Bouton de correction : aperçu pour les changements de texte, confirmation en deux temps sinon. */
+function boutonCorriger(liste, libelle, conteneur) {
+  const types = new Set(liste.map((c) => c.type));
+  const bouton = el('button', { class: 'auto', type: 'button' }, libelle);
   let arme = false;
   bouton.addEventListener('click', () => {
-    if (!arme) { arme = true; bouton.textContent = 'Confirmer : modifier le document (annulable par Ctrl+Z)'; bouton.classList.add('arme'); return; }
-    corrigerRegle(x.regle.id, indices);
+    if ([...types].some((t) => AVEC_APERCU.has(t))) { apercuCorrections(liste, conteneur); return; }
+    if (!arme) { arme = true; bouton.textContent = 'Confirmer : modifier le document (Ctrl+Z pour annuler)'; bouton.classList.add('arme'); return; }
+    appliquer(liste);
   });
   return bouton;
 }
 
-async function corrigerRegle(regle, indices) {
+/** Corrections d'une règle, regroupées par type. Hors de Word : simple indication. */
+function blocAuto(x) {
+  const toutes = x.occurrences.flatMap((o) => o.corrections || []);
+  if (!toutes.length) return null;
+  const parType = new Map();
+  for (const c of toutes) parType.set(c.type, [...(parType.get(c.type) || []), c]);
+  if (!enWord()) {
+    return el('p', { class: 'discret auto' }, `Correction possible quand le document est ouvert dans Word : ${[...parType.keys()].map((t) => LIBELLES[t]).join(' ; ')}.`);
+  }
+  const apercuZone = el('div', {});
+  const boutons = [...parType].map(([type, liste]) => boutonCorriger(liste,
+    `Corriger : ${LIBELLES[type]}${type === 'style-normal' ? '' : ` (${liste.length})`}`, apercuZone));
+  return el('div', { class: 'bloc-auto' }, ...boutons, apercuZone);
+}
+
+async function appliquer(liste) {
   statut('Correction en cours…');
   try {
-    const { corrections, decales } = await corriger(regle, indices, etat.doc, etat.regles.parametres);
-    const msg = `${regle} : ${corrections} correction(s) appliquée(s) dans le document (Ctrl+Z dans Word pour annuler)`
-      + `${decales ? ` ; ${decales} paragraphe(s) modifié(s) depuis le contrôle, laissé(s) tel(s) quel(s)` : ''}.`;
+    const { corrections, decales, ignorees } = await corriger(liste, etat.doc, etat.regles.parametres);
+    const msg = `${corrections} correction(s) appliquée(s) dans le document (Ctrl+Z dans Word pour annuler)`
+      + `${decales ? ` ; ${decales} paragraphe(s) modifié(s) depuis le contrôle, laissé(s) tel(s) quel(s)` : ''}`
+      + `${ignorees ? ` ; ${ignorees} cas ambigu(s) laissé(s) tel(s) quel(s)` : ''}. Contrôle relancé.`;
     await lireOuvert();
     statut(msg);
   } catch (e) {
-    statut(`Correction impossible : ${e.message}. Document protégé ou en lecture seule ?`, true);
+    statut(`Correction impossible : ${e.message}. Document protégé, en lecture seule, ou fonction absente de cette version de Word ?`, true);
+  }
+}
+
+async function selectionnerPourTri(plage) {
+  try {
+    if (await selectionnerPlage(plage.debut, plage.fin)) {
+      statut('Références sélectionnées : Accueil, Trier (bouton A→Z), Trier par Paragraphes, Texte, Croissant, OK ; puis relancer le contrôle.');
+    } else statut('Sélection impossible : relancer le contrôle.', true);
+  } catch (e) {
+    statut(`Sélection impossible : ${e.message}`, true);
   }
 }
 
 function afficherExigences() {
   const r = etat.dernier && etat.dernier.profil === etat.profil ? etat.dernier : null;
-  const lignes = etat.regles.exigences.filter((e) => e.profils.includes(etat.profil)).map((e) => {
+  const groupes = new Map();
+  for (const e of etat.regles.exigences.filter((x) => x.profils.includes(etat.profil))) {
     let etatEx = 'manuel';
     let libelle = 'À vérifier vous-même';
     if (e.regles.length) {
       const res = r ? r.resultats.filter((x) => e.regles.includes(x.regle.id)) : [];
       const n = res.reduce((k, x) => k + x.occurrences.length, 0);
-      if (!r) { etatEx = 'auto'; libelle = `Contrôlé (${e.regles.join(', ')})`; }
-      else if (n) { etatEx = 'alerte'; libelle = `${n} alerte(s) (${e.regles.join(', ')})`; }
+      const ids = `Règle${e.regles.length > 1 ? 's' : ''} ${e.regles.join(', ')}`;
+      const nonControle = r && r.infos.some((x) => e.regles.includes(x.regle) && /non contr[ôo]l/.test(x.texte));
+      if (!r) { etatEx = 'auto'; libelle = `Contrôlé (${ids})`; }
+      else if (n) { etatEx = 'alerte'; libelle = `${ids} : ${n} alerte(s) au total`; }
+      else if (nonControle) { etatEx = 'manuel'; libelle = `${ids} : non contrôlé (pièce introuvable), à vérifier vous-même`; }
       else if (res.length && res.every((x) => x.horsSource)) { etatEx = 'manuel'; libelle = 'Sur le .docx seulement'; }
-      else if (!res.length) { etatEx = 'auto'; libelle = `Contrôlé en mode dépôt (${e.regles.join(', ')})`; }
-      else { etatEx = 'ok'; libelle = `Sans écart (${e.regles.join(', ')})`; }
+      else { etatEx = 'ok'; libelle = `${ids} : sans écart`; }
+      if (e.manuel && etatEx === 'ok') libelle += ' ; reste à vérifier vous-même';
     }
-    return el('li', { class: `exigence ${etatEx}` },
+    if (!groupes.has(e.groupe)) groupes.set(e.groupe, []);
+    groupes.get(e.groupe).push(el('li', { class: `exigence ${etatEx}` },
       el('span', { class: 'statut-ex' }, libelle),
       el('span', {}, `${e.texte} (${e.page}).`),
-      e.manuel ? el('span', { class: 'discret' }, e.manuel) : null);
-  });
-  $('exigences').replaceChildren(...lignes);
+      e.manuel ? el('span', { class: 'discret' }, e.manuel) : null));
+  }
+  const codes = etat.regles.parametres.codes_sujet;
+  const blocs = [];
+  for (const [g, items] of groupes) {
+    blocs.push(el('li', { class: 'groupe-ex' }, g), ...items);
+    if (g === 'Dépôt' && etat.profil === 'notice' && codes) {
+      blocs.push(el('li', {}, el('details', {}, el('summary', {}, 'Codes du sujet (2 à 6 au document annexe)'),
+        el('p', { class: 'discret' }, 'Disciplines'), el('ul', { class: 'codes' }, ...codes.disciplines.map((c) => el('li', {}, c))),
+        el('p', { class: 'discret' }, 'Secteurs et branches'), el('ul', { class: 'codes' }, ...codes.secteurs.map((c) => el('li', {}, c))))));
+    }
+  }
+  $('exigences').replaceChildren(...blocs);
 }
 
 function ligneOccurrence(o, x) {
@@ -387,12 +444,15 @@ function ligneOccurrence(o, x) {
       ? el('button', { class: 'extrait', type: 'button', title: 'Sélectionner le passage dans Word', onclick: () => aller(o.i) }, o.extrait)
       : el('span', { class: 'extrait' }, o.i !== null ? `¶ ${o.i + 1} · ${o.extrait}` : o.extrait))
     : null;
+  const zone = el('div', {});
   return el('li', { class: `occurrence ${o.niveau}` },
     el('p', { class: 'message' }, o.message),
     extrait,
     el('span', { class: 'gestes' },
-      o.auto && enWord() ? el('button', { class: 'ignorer', type: 'button', title: x.regle.auto, onclick: () => corrigerRegle(x.regle.id, o.cibles) }, 'Corriger') : null,
-      el('button', { class: 'ignorer', type: 'button', title: 'Ne plus signaler cette occurrence pour ce document', onclick: () => ignorer(o.cle) }, 'Ignorer')));
+      o.corrections?.length && enWord() ? (() => { const b = boutonCorriger(o.corrections, 'Corriger', zone); b.className = 'ignorer'; return b; })() : null,
+      o.plage && enWord() ? el('button', { class: 'ignorer', type: 'button', title: 'Sélectionner les références de la catégorie pour le tri de Word', onclick: () => selectionnerPourTri(o.plage) }, 'Sélectionner pour trier') : null,
+      el('button', { class: 'ignorer', type: 'button', title: 'Ne plus signaler cette occurrence pour ce document', onclick: () => ignorer(o.cle) }, 'Ignorer')),
+    zone);
 }
 
 async function aller(i) {

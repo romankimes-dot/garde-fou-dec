@@ -52,10 +52,11 @@ function lireStyles(xml) {
   return { styles, defauts, defaut };
 }
 
+/** Interligne en multiple de ligne ; un interligne fixe (exact, au moins) est rendu en texte « 18 pt fixe ». */
 function interligne(spacing) {
   const regle = val(spacing, 'w:lineRule') || 'auto';
   const ligne = Number(val(spacing, 'w:line'));
-  return regle === 'auto' ? ligne / 240 : null; // exact / atLeast : pas un multiple
+  return regle === 'auto' ? ligne / 240 : `${ligne / 20} pt ${regle === 'exact' ? 'exactement' : 'au moins'}`;
 }
 
 /** Valeur d'une propriété en remontant la chaîne basedOn. */
@@ -165,6 +166,7 @@ function lireContenu(p, compte) {
   let image = false;
   let notes = 0;
   let saut = false;
+  let rouge = false;
   const champs = [];
   const tailles = new Set();
 
@@ -185,9 +187,13 @@ function lireContenu(p, compte) {
         case 'w:r': {
           // Taille de chaque passage écrit : directe (w:sz) ou celle du style (« style »).
           const sz = premier(premier(x, 'w:rPr'), 'w:sz');
+          const couleur = val(premier(premier(x, 'w:rPr'), 'w:color')) || '';
           const avant = texte.length;
           marcher(x, lien);
-          if (texte.slice(avant).trim()) tailles.add(sz ? Number(val(sz)) / 2 : 'style');
+          if (texte.slice(avant).trim()) {
+            tailles.add(sz ? Number(val(sz)) / 2 : 'style');
+            if (/^[c-f][0-9a-f][0-3][0-9a-f][0-3][0-9a-f]$/i.test(couleur)) rouge = true; // rouge dominant
+          }
           break;
         }
         case 'mc:AlternateContent': marcher(premier(x, 'mc:Choice') || { c: [] }, lien); break;
@@ -241,7 +247,7 @@ function lireContenu(p, compte) {
     }
   };
   marcher(p, null);
-  return { texte, liens, image, notes, saut, tailles };
+  return { texte, liens, image, notes, saut, tailles, rouge };
 }
 
 function texteDesParagraphes(racine) {
@@ -328,6 +334,7 @@ export async function lirePaquet(zip, source = 'docx') {
       liens: contenu.liens,
       image: contenu.image,
       notes: contenu.notes,
+      rouge: contenu.rouge,
       consigne: STYLES_CONSIGNE.has(nom),
       sautAvant: sautEnAttente || !!propriete(styles, styleId, 'saut'),
       garde: false,
@@ -387,11 +394,17 @@ export async function lirePaquet(zip, source = 'docx') {
       if (!xml) continue;
       pieds.push({ type: ref.a['w:type'] || 'default', ...analyserPied(xml, styles) });
     }
+    const numType = premier(s.sectPr, 'w:pgNumType');
+    const titlePg = premier(s.sectPr, 'w:titlePg');
     return {
       n,
       premierBloc: n === 0 ? 0 : sections[n - 1].dernier + 1,
       gauche: mar ? Number(mar.a['w:left']) / TWIPS_CM : null,
       droite: mar ? Number(mar.a['w:right']) / TWIPS_CM : null,
+      haut: mar ? Math.abs(Number(mar.a['w:top'])) / TWIPS_CM : null,
+      bas: mar ? Math.abs(Number(mar.a['w:bottom'])) / TWIPS_CM : null,
+      premierePageDistincte: !!titlePg && val(titlePg) !== '0' && val(titlePg) !== 'false',
+      debutNumero: numType && numType.a['w:start'] ? Number(numType.a['w:start']) : null,
       pieds,
     };
   };
@@ -404,6 +417,11 @@ export async function lirePaquet(zip, source = 'docx') {
   }
 
   const normal = defaut ? styles.get(defaut) : null;
+  // Notes de bas de page : numérotation (continue ou par page) et taille du style « footnote text ».
+  const reglages = await zip.texte('word/settings.xml');
+  const repriseParPage = /<w:footnotePr>[\s\S]*?<w:numRestart w:val="eachPage"/.test(reglages || '')
+    || sections.some((s) => tous(premier(s.sectPr, 'w:footnotePr'), 'w:numRestart').some((r) => val(r) === 'eachPage'));
+  const styleNote = [...styles.values()].find((st) => st.nom === 'footnote text');
   const entetes = [];
   for (const nom of zip.noms.filter((n) => /^word\/(header|footer)\d*\.xml$/.test(n))) {
     entetes.push(...texteDesParagraphes(analyserXml(await zip.texte(nom))));
@@ -450,6 +468,10 @@ export async function lirePaquet(zip, source = 'docx') {
       normal: {
         taille: (normal && propriete(styles, normal.id, 'taille')) ?? defauts.taille,
         interligne: (normal && propriete(styles, normal.id, 'interligne')) ?? defauts.interligne,
+      },
+      notes: {
+        repriseParPage,
+        taille: styleNote ? (propriete(styles, styleNote.id, 'taille') ?? defauts.taille) : null,
       },
     },
     diagnostic: { paragraphes: blocs.length, tableaux, sections: sections.length },

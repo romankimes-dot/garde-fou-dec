@@ -17,6 +17,8 @@ export const ZONES = [
   ['abreviations', /^(liste des |table des )?(abreviations|sigles)/],
   ['liste-annexes', /^liste des annexes/],
   ['figures', /^(table|liste) des (figures|tableaux|illustrations)/],
+  ['changements', /^(tableau des )?(principaux )?changements|^modifications apportees/],
+  ['liminaire', /^note liminaire/],
 ];
 
 const PLAN = /^(partie|chapitre|section|§|paragraphe)\s*(\d+(?:\.\d+)*)\b/;

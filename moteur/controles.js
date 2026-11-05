@@ -6,15 +6,18 @@ import { normaliser, cleTitre, extrait, masquerUrl, nombre, pages } from './text
 import { estTexte, caracteres, lirePlan } from './structure.js';
 
 const AV = 'avertissement';
-// `cibles` : paragraphes visés par une alerte regroupée ; `auto` : correction automatique possible dans Word.
+// `cibles` : paragraphes visés par une alerte regroupée.
+// `corrections` : corrections possibles dans Word, [{ type, i, texte?, style? }] (voir sources/correction.js).
 const occ = (b, message, opts = {}) => ({
   i: b ? b.i : null,
   extrait: b ? extrait(b.intitule, opts.pos || 0) : opts.extrait || '',
   message,
   niveau: opts.niveau,
   cibles: opts.cibles || (b ? [b.i] : []),
-  auto: !!opts.auto,
+  corrections: opts.corrections || [],
+  plage: opts.plage || null,
 });
+const corr = (type, blocs, extra = {}) => blocs.map((b) => ({ type, i: b.i, ...extra }));
 
 // ---------------------------------------------------------------- A. Conformité à la Note du jury
 
@@ -51,6 +54,11 @@ function A03(doc, S, { p }) {
   const car = S.annexes.reduce((n, a) => n + caracteres(S.blocsDe(a.titre.i, a.fin)), 0);
   const pg = car / p.caracteres_par_page;
   const o = pg > p.annexes_pages_max ? [occ(S.annexes[0].titre, `Annexes : au moins ${pages(pg)} pages, au-delà de ${p.annexes_pages_max}.`)] : [];
+  for (const t of S.titres) {
+    if (/annexes? (dites? )?[«\s]*(outils|informatives?)/.test(normaliser(t.intitule))) {
+      o.push(occ(t, 'Distinction entre annexes « outils » et annexes « informatives » à proscrire (Note, p. 8) : une seule suite d\'annexes numérotées.'));
+    }
+  }
   return { occurrences: o, infos: [`${S.annexes.length} annexe(s) : au moins ${pages(pg)} pages de texte (limite : ${p.annexes_pages_max}).`] };
 }
 
@@ -114,6 +122,15 @@ function A06(doc, S, { profil }) {
   const o = [];
   // Notice : la nomenclature vise le plan proposé (plans synthétique et détaillé), pas les titres de la notice elle-même.
   const cibles = new Set(profil === 'notice' ? [] : S.titres.filter((t) => t.role === 'plan'));
+  // Notice : sous-titres numérotés « 1.1 » sous les sections ; la Note proscrit ce découpage, on retire le numéro.
+  if (profil === 'notice') {
+    const sous = S.titres.filter((t) => t.role !== 'zone' && t.role !== 'categorie' && !S.dans('plan-det', t.i) && !S.dans('plan-synth', t.i)
+      && /^\s*\d+(\.\d+)+\.?\s/.test(t.intitule));
+    if (sous.length) {
+      o.push(occ(sous[0], `${sous.length} sous-titre(s) de la notice numéroté(s) « 1.1 » : découpage proscrit (« I, 1.1, 1.1.1 ou A, a)… », p. 14) ; garder des sous-titres sans numéro.`,
+        { cibles: sous.map((t) => t.i), corrections: corr('sans-numero', sous.filter((t) => /^\s*\d+(\.\d+)+/.test(t.texte))) }));
+    }
+  }
   for (const nom of ['plan-synth', 'plan-det']) {
     const z = S.zone(nom);
     if (z) for (const b of S.blocsDe(z.debut, z.fin)) if (!b.consigne && b.intitule && b.tableau === null) cibles.add(b);
@@ -123,7 +140,7 @@ function A06(doc, S, { profil }) {
   for (const b of [...cibles].sort((x, y) => x.i - y.i)) {
     const lab = b.intitule.replace(/^[•▪◦\-–]\s*/, '');
     if (INTERDIT.test(lab)) {
-      o.push(occ(b, 'Numérotation proscrite (I, 1.1, A, a)…) : utiliser Partie / Chapitre / Section / §.'));
+      o.push(occ(b, 'Numérotation proscrite (« I, 1.1, 1.1.1 ou A, a)… », p. 14) : utiliser Partie / Chapitre / Section / Paragraphe.'));
       continue;
     }
     const pl = lirePlan(lab);
@@ -141,9 +158,11 @@ function A06(doc, S, { profil }) {
   // Numéro décimal (« Section 1.2 ») : une seule alerte pour l'ensemble, sur le premier.
   if (decimaux.length) {
     const { b, pl } = decimaux[0];
-    const tapes = decimaux.filter((d) => d.tape).map((d) => d.b.i);
-    o.push(occ(b, `${decimaux.length} intitulé(s) à numéro décimal (« ${nomMot(pl.mot)} ${pl.brut} ») : numéro simple attendu (« ${nomMot(pl.mot)} ${pl.numero} »), la Note proscrivant le découpage 1.1.`,
-      { niveau: AV, cibles: decimaux.map((d) => d.b.i), auto: tapes.length > 0 }));
+    const tapes = decimaux.filter((d) => d.tape).map((d) => d.b);
+    const automatiques = decimaux.length - tapes.length;
+    o.push(occ(b, `${decimaux.length} intitulé(s) à numéro décimal (« ${nomMot(pl.mot)} ${pl.brut} ») : numéro simple attendu (« ${nomMot(pl.mot)} ${pl.numero} ») ; « 1.1, 1.1.1 » proscrits (p. 14).`
+      + (automatiques ? ` ${automatiques} numéro(s) automatique(s) : corriger la liste à plusieurs niveaux.` : ''),
+    { cibles: decimaux.map((d) => d.b.i), corrections: corr('numero-simple', tapes) }));
   }
   const infos = doc.labelsLus ? [] : ['Numéros automatiques non lus : seuls les numéros tapés sont contrôlés. Contrôle complet sur le .docx.'];
   return { occurrences: o, infos };
@@ -251,7 +270,10 @@ function A09(doc, S, { p }) {
       const proche = titreProche(dansNotice, def.proches, pris);
       if (proche) {
         pris.add(proche.i);
-        o.push(occ(proche, `Section ${k + 1} « ${def.titre} » absente ; titre approchant : à renommer « ${k + 1}. ${def.titre} » si son contenu y répond.`));
+        const ref = s.find(Boolean);
+        const texte = proche.label ? def.titre : `${k + 1}. ${def.titre}`;
+        o.push(occ(proche, `Section ${k + 1} « ${def.titre} » absente ; titre approchant : à renommer « ${k + 1}. ${def.titre} » si son contenu y répond.`,
+          { corrections: [{ type: 'renommer', i: proche.i, texte, style: ref?.styleBuiltIn || null }] }));
       } else o.push(occ(null, `Section ${k + 1} « ${def.titre} » absente : à rédiger (ordre imposé, après la section ${k}).`));
       return;
     }
@@ -325,7 +347,7 @@ function A12(doc, S, { p }) {
     else o.push(occ(blocs[0], `${blocs.length} lignes « ${nomMot(type)} » sans nombre prévisionnel de pages (exigé à chaque niveau).`));
   }
   if (valeurs.some((v) => v.pl && v.pl.niveau === 3) && !valeurs.some((v) => v.pl && v.pl.niveau === 4)) {
-    o.push(occ(z.titre, 'Aucun paragraphe (« § n ») dans le plan détaillé : niveaux attendus Partie / Chapitre / Section / Paragraphe, outils cités dans les paragraphes concernés.', { niveau: AV }));
+    o.push(occ(z.titre, 'Aucun paragraphe dans le plan détaillé : découpage « Partie/chapitre/section/paragraphe », pages prévisionnelles et outils au niveau des paragraphes (p. 12).'));
   }
   if (!intro) o.push(occ(z.titre, 'Introduction absente du plan détaillé (avec son nombre de pages).'));
   if (!conclusion) o.push(occ(z.titre, 'Conclusion absente du plan détaillé (avec son nombre de pages).'));
@@ -437,6 +459,19 @@ function A15(doc, S, { p, profil }) {
     }
     if (!/\b\d{5}\b|\b\d{2}\s\d{3}\b/.test(texte)) o.push(occ(garde[0], 'Code postal non trouvé (adresse personnelle : au minimum code postal et ville).', { niveau: AV }));
     if (!MOIS.test(texte)) o.push(occ(garde[0], 'Mois et année de dépôt non trouvés (« novembre 2026 »).', { niveau: AV }));
+  } else {
+    // Page de garde du mémoire (p. 14).
+    if (!/diplome d'expertise comptable/.test(texte)) o.push(occ(garde[0], 'Mention « Diplôme d\'expertise comptable » absente.'));
+    if (!/session d.(printemps|automne)/.test(texte) || !/20\d\d/.test(texte)) o.push(occ(garde[0], 'Session absente : « Session de printemps (mai) » ou « Session d\'automne (novembre) » suivie de l\'année.'));
+    if (!/\bmemoire\b/.test(texte)) o.push(occ(garde[0], 'Mention « MÉMOIRE » absente.'));
+    if (!/\b\d{5}\b|\b\d{2}\s\d{3}\b/.test(texte)) o.push(occ(garde[0], 'Code postal non trouvé (NOM – Prénom – adresse : au minimum code postal et ville).', { niveau: AV }));
+    const titre = garde.find((b) => {
+      const n = normaliser(b.texte);
+      const lettres = b.texte.match(/\p{L}/gu) || [];
+      return lettres.length >= 15 && (b.texte.match(/\p{Lu}/gu) || []).length / lettres.length > 0.9
+        && !/diplome d'expertise|session d|^memoire$/.test(n);
+    });
+    if (!titre) o.push(occ(garde[0], 'Titre en majuscules non repéré : « TITRE en majuscules pour tous les mots du titre ».', { niveau: AV }));
   }
   const image = garde.find((b) => b.image);
   if (image) o.push(occ(image, 'Image sur la page de garde : vérifier qu\'il ne s\'agit pas d\'un logo du cabinet.', { niveau: AV }));
@@ -465,17 +500,89 @@ function A16(doc, S, { termes }) {
   return { occurrences: o, infos: [] };
 }
 
+/** Contenu de l'annexe n° 1 de la charte IA (modèle officiel) : tableau des usages, engagement, date, nom, signature. */
+function verifierCharte(blocs, titre) {
+  const o = [];
+  const cellules = blocs.filter((b) => b.tableau !== null);
+  const tableau = cellules.find((b) => /type d.usage/.test(normaliser(b.texte)));
+  if (!tableau) {
+    o.push(occ(titre, 'Tableau récapitulatif des usages absent (colonnes : type d\'usage A, B, C ou D ; bref descriptif ; pages concernées).'));
+  } else {
+    const lignes = new Map();
+    for (const b of cellules.filter((x) => x.tableau === tableau.tableau && x.ligne > 0)) {
+      if (!lignes.has(b.ligne)) lignes.set(b.ligne, []);
+      lignes.get(b.ligne).push(b);
+    }
+    const remplies = [...lignes.values()].filter((l) => l.some((b) => b.texte.trim()));
+    const exemple = cellules.find((b) => b.tableau === tableau.tableau && /^\s*ex\s*:/i.test(b.texte));
+    if (exemple) o.push(occ(exemple, 'Exemple du modèle encore présent (« Ex : … ») : le remplacer par les usages réels.'));
+    if (!remplies.length) o.push(occ(tableau, 'Aucun usage déclaré dans le tableau : recenser de manière exhaustive les parties ayant bénéficié de l\'IA.'));
+    for (const l of remplies) {
+      const type = l.find((b) => b.colonne === 0);
+      if (type && !/type\s*[a-d]\b|^\s*[a-d]\s*$/i.test(type.texte)) o.push(occ(type, 'Type d\'usage attendu : A, B, C ou D (typologie de la charte).', { niveau: AV }));
+      const pagesCol = l.find((b) => b.colonne === 2);
+      if (pagesCol && !pagesCol.texte.trim()) o.push(occ(pagesCol, 'Pages concernées non renseignées.', { niveau: AV }));
+    }
+  }
+  const texte = normaliser(blocs.map((b) => b.texte).join(' '));
+  if (!/je certifie avoir pris connaissance/.test(texte)) o.push(occ(titre, 'Engagement du candidat absent (« Je certifie avoir pris connaissance… »).'));
+  const ligneDate = blocs.find((b) => /date\s*:/.test(normaliser(b.texte)));
+  if (ligneDate && /jj\/mm\/aaaa/i.test(ligneDate.texte)) o.push(occ(ligneDate, 'Date non renseignée (JJ/MM/AAAA).'));
+  if (ligneDate && /nom\s*[-–]\s*prenom\s*:\s*(signature|$)/.test(normaliser(ligneDate.texte))) o.push(occ(ligneDate, 'Nom – prénom non renseignés.'));
+  const signe = blocs.some((b) => b.image) || (ligneDate && /signature\s*:\s*\S/.test(normaliser(ligneDate.texte)));
+  if (!signe) o.push(occ(ligneDate || titre, 'Signature non repérée (image de la signature) : annexe à signer (Note, p. 12).', { niveau: AV }));
+  return o;
+}
+
 function A17(doc, S, { profil }) {
   if (profil === 'notice') {
     const z = S.zone('charte');
-    if (!z) return { occurrences: [occ(null, 'Annexe 1 de la charte IA absente (titre « Annexe 1 de la charte d\'usage de l\'IA »).')], infos: [] };
-    const contenu = S.blocsDe(z.debut, z.fin).some((b) => (estTexte(b) && b.texte.trim()) || b.image || b.tableau !== null);
-    return { occurrences: contenu ? [] : [occ(z.titre, 'Annexe 1 de la charte IA vide : tableau des usages complété et signé attendu.')], infos: [] };
+    if (!z) return { occurrences: [occ(null, 'Annexe n° 1 de la charte IA absente (« Usage de l\'Intelligence Artificielle pour la rédaction du rapport de stage ou du mémoire »), complétée, signée et insérée à la fin de la notice.')], infos: [] };
+    return { occurrences: verifierCharte(S.blocsDe(z.titre.i, z.fin), z.titre), infos: [] };
   }
   const a1 = S.annexes[0];
   if (!a1) return { occurrences: [occ(null, 'Aucune annexe : l\'annexe 1 doit être l\'annexe n° 1 de la charte IA.')], infos: [] };
   const ia = /intelligence artificielle|\bia\b/.test(normaliser(a1.titre.intitule));
-  return { occurrences: ia ? [] : [occ(a1.titre, 'La première annexe doit être l\'annexe n° 1 de la charte IA (usage de l\'IA).')], infos: [] };
+  if (!ia) return { occurrences: [occ(a1.titre, 'La première annexe doit être l\'annexe n° 1 « Usage de l\'Intelligence Artificielle pour la rédaction du rapport de stage ou du mémoire » (p. 15).')], infos: [] };
+  return { occurrences: verifierCharte(S.blocsDe(a1.titre.i, a1.fin), a1.titre), infos: [] };
+}
+
+// Présentation des références par catégorie (Note, p. 10-11), exemples : « ROCHER Aurélien, (2025), Titre, Revue, n°, p. ».
+const FORMES = {
+  annee: [/\(\s*\d{4}\s*\)/, 'année entre parenthèses après l\'auteur, « (2025) »'],
+  nom: [/^\s*[\p{Lu}][\p{Lu}'’\- ]+(?=[\s,])/u, 'NOM du premier auteur en capitales'],
+  virgule: [null, 'pas de virgule entre NOM et Prénom (« ROCHER Aurélien, (2025), … »)'],
+  url: [/(https?:\/\/|www\.)\S+/i, 'lien URL absent'],
+  cliquable: [null, 'lien URL non cliquable'],
+  consultation: [/consultation/i, '« (date de la dernière consultation : j/m/année) » absente'],
+  pages: [/\d+\s*p\b\.?|\d+\s*pages/i, 'nombre de pages absent (« 180 p. »)'],
+  session: [/\b(mai|novembre|printemps|automne)\b/i, 'session de soutenance absente (mai ou novembre)'],
+  accueil: [null, 'site internet : page d\'accueil uniquement'],
+};
+const FORMES_CATEGORIE = {
+  2: ['nom', 'virgule', 'annee'], 3: ['annee', 'url', 'cliquable', 'consultation'], 4: ['nom', 'virgule', 'annee', 'pages'],
+  5: ['nom', 'virgule', 'annee', 'session', 'pages'], 6: ['url', 'cliquable', 'consultation', 'accueil'],
+};
+
+function formeReferences(references, n, o) {
+  const ecarts = new Map();
+  for (const b of references) {
+    const t = b.texte;
+    const url = (t.match(FORMES.url[0]) || [''])[0].replace(/[).,;]+$/, '');
+    for (const f of FORMES_CATEGORIE[n] || []) {
+      let ok;
+      if (f === 'virgule') ok = !/^\s*[\p{Lu}][\p{Lu}'’\-]+,\s*\p{Lu}\p{Ll}/u.test(t);
+      else if (f === 'cliquable') ok = !url || b.liens.some((l) => l.includes(url.replace(/^https?:\/\//, '').slice(0, 20)));
+      else if (f === 'accueil') ok = !url || !/^(https?:\/\/)?[^/]+\/[^/\s]+/.test(url);
+      else ok = FORMES[f][0].test(t);
+      if (ok) continue;
+      if (!ecarts.has(f)) ecarts.set(f, []);
+      ecarts.get(f).push(b);
+    }
+  }
+  for (const [f, blocs] of ecarts) {
+    o.push(occ(blocs[0], `${blocs.length} référence(s) : ${FORMES[f][1]}.`, { niveau: AV, cibles: blocs.map((b) => b.i) }));
+  }
 }
 
 function A18(doc, S, { p }) {
@@ -493,9 +600,11 @@ function A18(doc, S, { p }) {
         const cle = cleTitre(b.intitule);
         const k = p.bibliographie_categories.findIndex((c) => (c.proches || []).some((m) => new RegExp(m).test(cle)));
         courante.proche = k >= 0 ? k + 1 : null;
+        const nouveau = k >= 0 ? (b.label ? p.bibliographie_categories[k].titre : `${k + 1}. ${p.bibliographie_categories[k].titre}`) : null;
         o.push(occ(b, k >= 0
           ? `Intitulé hors des six catégories de la Note : à remplacer par « ${p.bibliographie_categories[k].titre} » (ou répartir ses références).`
-          : 'Intitulé hors des six catégories de la Note : répartir ses références entre les six catégories.'));
+          : 'Intitulé hors des six catégories de la Note : répartir ses références entre les six catégories.',
+        { corrections: nouveau ? [{ type: 'renommer', i: b.i, texte: nouveau }] : [] }));
       }
       cats.push(courante);
     } else if (!b.titre) {
@@ -516,12 +625,16 @@ function A18(doc, S, { p }) {
     total += c.entrees.length;
     if (!c.entrees.length) { o.push(occ(c.b, 'Catégorie vide : la supprimer ou la compléter.', { niveau: AV })); continue; }
     const def = c.n || c.proche ? p.bibliographie_categories[(c.n || c.proche) - 1] : null;
-    if (!def || !def.alpha) continue;
-    for (let k = 1; k < c.entrees.length; k++) {
-      const a = normaliser(c.entrees[k - 1].texte);
-      const b = normaliser(c.entrees[k].texte);
+    if (!def) continue;
+    const references = c.entrees.filter((b) => !/^\s*\(/.test(b.texte));
+    formeReferences(references, c.n || c.proche, o);
+    if (!def.alpha) continue;
+    for (let k = 1; k < references.length; k++) {
+      const a = normaliser(references[k - 1].texte);
+      const b = normaliser(references[k].texte);
       if (a.localeCompare(b, 'fr') > 0) {
-        o.push(occ(c.entrees[k], 'Ordre alphabétique du premier auteur non respecté dans la catégorie.', { niveau: AV }));
+        o.push(occ(references[k], 'Ordre alphabétique (A à Z) du premier auteur non respecté dans la catégorie : sélectionner les références, puis Accueil, Trier.',
+          { niveau: AV, plage: { debut: references[0].i, fin: references[references.length - 1].i } }));
         break;
       }
     }
@@ -551,6 +664,20 @@ function A19(doc, S, { p }) {
   for (const x of marges.values()) {
     o.push(occ(x.b, `Marge ${x.cote} de ${cm(x.v)} cm, ${cm(p.marge_cm)} cm attendus (section${x.sections.length > 1 ? 's' : ''} ${x.sections.join(', ')} du document).`));
   }
+  // « Marges normales en haut et en bas » : préréglage « Normales » de Word, 2,5 cm.
+  const hb = mp.sections.filter((s) => [s.haut, s.bas].some((v) => v !== null && v !== undefined && Math.abs(v - p.marge_haut_bas_cm) > 0.05));
+  if (hb.length) {
+    const sHb = hb[0];
+    o.push(occ(doc.blocs[sHb.premierBloc] || null, `Marges haut et bas de ${cm(sHb.haut)} et ${cm(sHb.bas)} cm : « marges normales » attendues (préréglage Normales de Word : ${cm(p.marge_haut_bas_cm)} cm).`, { niveau: AV }));
+  }
+  // Page de garde non numérotée : numéros « depuis la première page après la page de garde ».
+  const s0 = mp.sections[0];
+  if (s0 && s0.pieds) {
+    const defaut = s0.pieds.find((f) => f.type === 'default');
+    const premiere = s0.pieds.find((f) => f.type === 'first');
+    const numerotee = s0.premierePageDistincte ? !!premiere?.numero : !!defaut?.numero;
+    if (numerotee) o.push(occ(doc.blocs[0] || null, 'La page de garde porte un numéro : Insertion, Pied de page, Modifier, cocher « Première page différente ».', { niveau: AV }));
+  }
   if (mp.sections.length && mp.sections.every((s) => s.pieds !== null)) {
     const apresGarde = mp.sections.length > 1 ? mp.sections.slice(1) : mp.sections;
     if (!apresGarde.some((s) => s.pieds.some((f) => f.numero))) o.push(occ(null, 'Aucun numéro de page dans les pieds de page : Insertion, Numéro de page, Bas de page, à droite.'));
@@ -566,9 +693,9 @@ function A19(doc, S, { p }) {
     lus++;
     const tailles = b.effectif.tailles.filter((t) => t !== null && t !== p.taille_texte);
     const il = b.effectif.interligne;
-    const ecartIl = il !== null && il !== undefined && Math.abs(il - p.interligne) > 0.01;
+    const ecartIl = il !== null && il !== undefined && (typeof il === 'string' || Math.abs(il - p.interligne) > 0.01);
     if (!tailles.length && !ecartIl) continue;
-    const motif = [tailles.length ? `taille ${tailles.join(', ')}` : '', ecartIl ? `interligne ${cm(il)}` : ''].filter(Boolean).join(', ');
+    const motif = [tailles.length ? `taille ${tailles.join(', ')}` : '', ecartIl ? `interligne ${typeof il === 'string' ? `fixe ${il}` : cm(il)}` : ''].filter(Boolean).join(', ');
     const cle = `${b.style || 'sans style'}|${motif}`;
     if (!groupes.has(cle)) groupes.set(cle, { style: b.style || 'sans style', motif, blocs: [] });
     groupes.get(cle).blocs.push(b);
@@ -579,7 +706,50 @@ function A19(doc, S, { p }) {
   const infos = [`Mise en page : ${mp.sections.length} section(s) lue(s), ${lus} paragraphe(s) de texte courant contrôlé(s) ; tableaux, légendes et notes non contrôlés.`];
   if (mp.sections.some((s) => s.gauche === null)) infos.push('Marges non lues dans ce Word : les contrôler sur le .docx.');
   if (mp.paragraphes === false) infos.push('Taille et interligne paragraphe par paragraphe : contrôler le .docx (lecture du document ouvert incomplète).');
-  if (mp.normal.taille && mp.normal.taille !== p.taille_texte) infos.push(`Style Normal : taille ${mp.normal.taille} ; le corriger (Accueil, Styles, clic droit sur Normal, Modifier) règle la plupart des paragraphes d'un coup.`);
+  if (mp.normal.taille && mp.normal.taille !== p.taille_texte) {
+    o.push(occ(null, `Style Normal en taille ${mp.normal.taille} : la passer à ${p.taille_texte} règle d'un coup les paragraphes sans mise en forme directe.`,
+      { niveau: AV, corrections: [{ type: 'style-normal', i: -1 }] }));
+  }
+  return { occurrences: o, infos };
+}
+
+function A20(doc, S, { p }) {
+  const n = doc.miseEnPage?.notes;
+  const nb = (doc.notes || []).length;
+  if (!n) return { occurrences: [], infos: [`${nb} note(s) de bas de page ; numérotation et taille contrôlées sur le .docx.`] };
+  const o = [];
+  if (nb && n.repriseParPage) o.push(occ(null, 'Notes de bas de page numérotées page par page : numérotation de 1 à x attendue (Références, Notes de bas de page, Numérotation : Continue).'));
+  if (nb && n.taille && n.taille >= p.taille_texte) o.push(occ(null, `Notes de bas de page en taille ${n.taille} : caractères plus petits que ceux du texte attendus (style « Note de bas de page »).`));
+  return { occurrences: o, infos: [`${nb} note(s) de bas de page.`] };
+}
+
+function A21(doc, S, { p, profil }) {
+  const o = [];
+  const infos = [];
+  if (profil === 'notice') {
+    const z = S.zone('changements');
+    if (!z) {
+      infos.push('Après une décision 4.2 ou 5.2 seulement : tableau des changements principaux (deux pages au plus, entre la page de garde et la notice) et modifications écrites en rouge (p. 13).');
+    } else {
+      const notice = S.zone('notice');
+      if (notice && z.titre.i > notice.titre.i) o.push(occ(z.titre, 'Le tableau des changements se place entre la page de garde et la notice explicative.'));
+      const blocs = S.blocsDe(z.debut, z.fin);
+      if (!blocs.some((b) => b.tableau !== null)) o.push(occ(z.titre, 'Les changements se présentent sous la forme d\'un tableau.'));
+      if (caracteres(blocs) > 2 * p.caracteres_par_page) o.push(occ(z.titre, 'Tableau des changements : deux pages au maximum.'));
+      if (doc.source === 'docx' || doc.miseEnPage) {
+        if (!doc.blocs.some((b) => b.rouge && !S.dans('changements', b.i))) o.push(occ(z.titre, 'Aucun passage en rouge repéré : toutes les modifications s\'écrivent en rouge.', { niveau: AV }));
+      }
+    }
+  } else {
+    const z = S.zone('liminaire');
+    if (!z) {
+      infos.push('Deuxième présentation ou plus seulement : note liminaire en tableau, en début de mémoire, explicitant les modifications (p. 15).');
+    } else {
+      const debut = Math.min(...['sommaire', 'intro'].map((nom) => S.zone(nom)?.titre.i ?? Infinity));
+      if (z.titre.i > debut) o.push(occ(z.titre, 'La note liminaire se place en début de mémoire.'));
+      if (!S.blocsDe(z.debut, z.fin).some((b) => b.tableau !== null)) o.push(occ(z.titre, 'La note liminaire se présente sous la forme d\'un tableau.'));
+    }
+  }
   return { occurrences: o, infos };
 }
 
@@ -767,6 +937,49 @@ function B09(doc, S) {
   return { occurrences: o, infos: [] };
 }
 
+/** Tableaux et figures (p. 14) : titre, de préférence numéroté, et origine. */
+function B10(doc, S) {
+  const o = [];
+  const legende = (b) => b && b.tableau === null && (/caption|l[ée]gende/.test(b.style || '')
+    || /^(tableau|tab\.|figure|graphique|sch[ée]ma|illustration)\b/i.test(b.texte.trim()));
+  const titreCourt = (b) => b && b.tableau === null && !b.titre && b.texte.trim().length <= 120 && !/[.:;,]\s*$/.test(b.texte.trim())
+    && /^\p{Lu}/u.test(b.texte.trim());
+  const voisin = (i, pas) => {
+    for (let k = i + pas; k >= 0 && k < doc.blocs.length; k += pas) {
+      const b = doc.blocs[k];
+      if (b.texte.trim() || b.tableau !== null) return b;
+    }
+    return null;
+  };
+  const tableaux = new Map();
+  for (const b of doc.blocs) {
+    if (b.tableau === null || b.garde) continue;
+    if (!tableaux.has(b.tableau)) tableaux.set(b.tableau, []);
+    tableaux.get(b.tableau).push(b);
+  }
+  const sansTitre = [];
+  const sansNumero = [];
+  const sansSource = [];
+  for (const cellules of tableaux.values()) {
+    const avant = voisin(cellules[0].i, -1);
+    const apres = voisin(cellules[cellules.length - 1].i, 1);
+    const titre = [avant, apres].find((b) => legende(b)) || (titreCourt(avant) ? avant : null);
+    if (!titre) sansTitre.push(cellules[0]);
+    else if (!/\d/.test(titre.texte)) sansNumero.push(titre);
+    const officiel = S.dans('charte', cellules[0].i);
+    const source = [apres, apres && voisin(apres.i, 1), cellules[cellules.length - 1]].some((b) => b && /\bsources?\b|d'apr[eè]s|r[ée]alis[ée] par/i.test(b.texte));
+    if (!source && !officiel) sansSource.push(cellules[0]);
+  }
+  if (sansTitre.length) o.push(occ(sansTitre[0], `${sansTitre.length} tableau(x) sans titre (« tout tableau avec un titre », p. 14) : Références, Insérer une légende.`, { cibles: sansTitre.map((b) => b.i) }));
+  if (sansNumero.length) o.push(occ(sansNumero[0], `${sansNumero.length} titre(s) de tableau non numéroté(s) (numérotation recommandée : « Tableau 1 – … »).`, { niveau: AV, cibles: sansNumero.map((b) => b.i) }));
+  if (sansSource.length) o.push(occ(sansSource[0], `${sansSource.length} tableau(x) sans mention d'origine (« Source : … » ou « Réalisé par l'auteur ») sous le tableau.`, { niveau: AV, cibles: sansSource.map((b) => b.i) }));
+  // Figures : images hors tableaux (une image dans une cellule illustre le tableau, qui porte déjà un titre).
+  const figures = doc.blocs.filter((b) => b.image && !b.garde && b.tableau === null && !S.dans('charte', b.i)
+    && ![b, voisin(b.i, -1), voisin(b.i, 1)].some((x) => x && /^(figure|graphique|sch[ée]ma|illustration)\s*(n°\s*)?\d+/i.test(x.texte.trim())));
+  if (figures.length) o.push(occ(figures[0], `${figures.length} figure(s) sans numéro (« Figure 1 – … ») ni origine (p. 14).`, { niveau: AV, cibles: figures.map((b) => b.i) }));
+  return { occurrences: o, infos: [`${tableaux.size} tableau(x) et ${doc.blocs.filter((b) => b.image && !b.garde && b.tableau === null).length} figure(s) hors page de garde.`] };
+}
+
 // ---------------------------------------------------------------- F. Propreté
 
 const RESTES = /\bTODO\b|\bFIXME\b|\bXXX\b|SOURCE À TROUVER|\?\?|\[(?:[^\]]{2,}|…|\.\.\.)\]/g;
@@ -848,8 +1061,11 @@ function F04(doc, S) {
     if (anglais >= 0) noter('guillemets anglais : « » en premier niveau', anglais);
     if (ecarts.size) {
       const [premiere] = ecarts.values();
-      const auto = [...ecarts.keys()].some((k) => k.startsWith('espace ordinaire') || k.startsWith('espace insécable'));
-      o.push(occ(b, [...ecarts.keys()].join(' ; ') + '.', { pos: premiere, auto }));
+      const cles = [...ecarts.keys()];
+      const corrections = [];
+      if (cles.some((k) => k.startsWith('espace ordinaire') || k.startsWith('espace insécable'))) corrections.push({ type: 'insecables', i: b.i });
+      if (ecarts.has('guillemets droits " " : utiliser « »')) corrections.push({ type: 'guillemets', i: b.i });
+      o.push(occ(b, cles.join(' ; ') + '.', { pos: premiere, corrections }));
     }
   }
   return { occurrences: o, infos: [] };
@@ -865,7 +1081,7 @@ function F05(doc, S) {
     chercher(/\S[   ]{2,}\S/, 'espaces doublés');
     chercher(/ [,.](?!\.\.)/, 'espace avant une virgule ou un point');
     chercher(/,,|;;|::|(?<!\.)\.\.(?!\.)|,\.|(?<!(?:^|[\s(])(?:al|etc|cf|coll|vol|art|éd|ed|p|pp|n|ibid|cit|op|dir))\.,/, 'ponctuation doublée');
-    if (ecarts.length) o.push(occ(b, ecarts.join(' ; ') + '.', { pos, auto: ecarts.some((e) => e === 'espaces doublés') || / ,/.test(t) }));
+    if (ecarts.length) o.push(occ(b, ecarts.join(' ; ') + '.', { pos, corrections: ecarts.some((e) => e === 'espaces doublés') || / ,/.test(t) ? [{ type: 'espaces', i: b.i }] : [] }));
   }
   return { occurrences: o, infos: [] };
 }
@@ -879,7 +1095,7 @@ function F06(doc, S, { p }) {
     let pos = null;
     for (const m of t.matchAll(mots)) { trouves.push(m[1]); pos ??= m.index; }
     for (const m of t.matchAll(/(?:^|[.!?…]\s+)(A)\s+(?=\p{Ll})/gu)) { trouves.push('A → À'); pos ??= m.index; }
-    if (trouves.length) o.push(occ(b, `Majuscule sans accent : ${[...new Set(trouves)].join(', ')}.`, { pos: pos || 0, auto: trouves.some((x) => x !== 'A → À') }));
+    if (trouves.length) o.push(occ(b, `Majuscule sans accent : ${[...new Set(trouves)].join(', ')}.`, { pos: pos || 0, corrections: trouves.some((x) => x !== 'A → À') ? [{ type: 'accents', i: b.i }] : [] }));
   }
   return { occurrences: o, infos: [] };
 }
@@ -896,7 +1112,7 @@ function F07(doc, S) {
     chercher(/\d (%|€)/, 'espace insécable attendue avant % ou €');
     chercher(/(?<![\d.,/\-–\p{L}])\d{5,}(?![\d/\-–\p{L}])/u, 'milliers non séparés (1 000 000)');
     chercher(/(?<![\d.])\d{1,3}(?:\.\d{3})+(?![\d.])/, 'point comme séparateur de milliers');
-    if (ecarts.length) o.push(occ(b, ecarts.join(' ; ') + '.', { pos, auto: /\d ?[%€]/.test(t) }));
+    if (ecarts.length) o.push(occ(b, ecarts.join(' ; ') + '.', { pos, corrections: /\d ?[%€]/.test(t) ? [{ type: 'unites', i: b.i }] : [] }));
   }
   return { occurrences: o, infos: [] };
 }
@@ -922,7 +1138,7 @@ function F08(doc, S) {
 }
 
 export const CONTROLES = {
-  A01, A02, A03, A04, A05, A06, A07, A08, A09, A10, A11, A12, A13, A14, A15, A16, A17, A18, A19,
-  B01, B02, B03, B04, B05, B06, B07, B08, B09,
+  A01, A02, A03, A04, A05, A06, A07, A08, A09, A10, A11, A12, A13, A14, A15, A16, A17, A18, A19, A20, A21,
+  B01, B02, B03, B04, B05, B06, B07, B08, B09, B10,
   F01, F02, F03, F04, F05, F06, F07, F08,
 };

@@ -113,6 +113,7 @@ export async function lireWord() {
         niveau: tableau === null ? niveau : 0,
         role: tableau === null || role === 'toc' ? role : null,
         style: nom || null,
+        styleBuiltIn: builtin || null,
         tableau,
         ligne: cellule ? cellule.rowIndex : null,
         colonne: cellule ? cellule.cellIndex : null,
@@ -149,6 +150,7 @@ export async function lireWord() {
           blocs[k].effectif = x.effectif;
           blocs[k].direct = x.direct;
           blocs[k].image = x.image;
+          blocs[k].rouge = x.rouge;
           if (blocs[k].garde && x.texte.length > blocs[k].texte.length) blocs[k].texte = x.texte; // zones de texte
         });
         ooxml = `lu (${lu.blocs.length} paragraphes)`;
