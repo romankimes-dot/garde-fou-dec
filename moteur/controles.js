@@ -175,6 +175,7 @@ function arbreDuPlan(lignes) {
   const ruptures = [];
   // Deux usages admis : numérotation reprise à 1 sous chaque niveau supérieur, ou continue sur tout le plan.
   const dernier = {};
+  const usages = {};
   for (const b of lignes) {
     const pl = lirePlan(b.intitule);
     if (!pl) continue;
@@ -186,6 +187,12 @@ function arbreDuPlan(lignes) {
     const continu = (dernier[pl.niveau] || 0) + 1;
     dernier[pl.niveau] = pl.numero;
     if (pl.numero !== attendu && pl.numero !== continu) ruptures.push({ noeud, attendu });
+    else if (attendu !== continu) {
+      // Les deux usages sont admis, mais un seul par niveau dans tout le plan.
+      const usage = pl.numero === attendu ? 'reprise' : 'continue';
+      if (!usages[pl.niveau]) usages[pl.niveau] = usage;
+      else if (usages[pl.niveau] !== usage) ruptures.push({ noeud, melange: usages[pl.niveau] });
+    }
     if (parent.niveau && pl.niveau > parent.niveau + 1) ruptures.push({ noeud, saut: true });
     parent.enfants.push(noeud);
     pile.push(noeud);
@@ -200,6 +207,9 @@ function A07(doc, S, { p, profil }) {
   const { racine, ruptures } = arbreDuPlan(lignesDuPlan(doc, S, profil));
   for (const r of ruptures) {
     if (r.saut) o.push(occ(r.noeud.b, 'Niveau sauté : ce titre suit directement un niveau plus élevé de deux crans.'));
+    else if (r.melange) {
+      o.push(occ(r.noeud.b, `« ${nomMot(r.noeud.mot)} ${r.noeud.numero} » : numérotation ${r.melange === 'reprise' ? 'reprise à 1 sous chaque niveau supérieur' : 'continue'} ailleurs dans le plan ; un seul usage pour tout le plan.`));
+    }
     else o.push(occ(r.noeud.b, `« ${nomMot(r.noeud.mot)} ${r.noeud.numero} » : ${r.attendu === 1 ? 'la numérotation doit repartir à 1' : `« ${r.attendu} » attendu`}.`));
   }
   const parties = racine.enfants.filter((e) => e.niveau === 1);
