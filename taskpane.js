@@ -8,7 +8,7 @@ import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Propreté' };
-const VERSION = '0.3.0';
+const VERSION = '0.3.1';
 
 const etat = {
   profil: 'notice', mode: 'redaction', termes: [], ignores: {},

@@ -745,6 +745,28 @@ function B08(doc, S, { p }) {
   return { occurrences: o, infos: [] };
 }
 
+/** Titres numérotés « 1. », « 1.1 » (notice, annexes…) : doublons et sauts. */
+function B09(doc, S) {
+  const o = [];
+  const vus = new Map();
+  const dernierSous = new Map();
+  for (const t of S.titres) {
+    if (t.zone || t.role === 'categorie') continue;
+    const m = /^(\d+(?:\.\d+)*)(?=[.)\s-])/.exec(normaliser(t.intitule).replace(/^[•▪◦]\s*/, ''));
+    if (!m) continue;
+    const num = m[1];
+    if (vus.has(num)) { o.push(occ(t, `Numéro « ${num} » déjà utilisé (¶ ${vus.get(num) + 1}).`)); continue; }
+    vus.set(num, t.i);
+    const parts = num.split('.').map(Number);
+    const parent = parts.slice(0, -1).join('.');
+    const attendu = (dernierSous.get(parent) || 0) + 1;
+    if (parts[parts.length - 1] !== attendu) o.push(occ(t, `Numéro « ${num} » : « ${[...parts.slice(0, -1), attendu].join('.')} » attendu.`));
+    dernierSous.set(parent, parts[parts.length - 1]);
+    dernierSous.set(num, 0);
+  }
+  return { occurrences: o, infos: [] };
+}
+
 // ---------------------------------------------------------------- F. Propreté
 
 const RESTES = /\bTODO\b|\bFIXME\b|\bXXX\b|SOURCE À TROUVER|\?\?|\[(?:[^\]]{2,}|…|\.\.\.)\]/g;
@@ -901,6 +923,6 @@ function F08(doc, S) {
 
 export const CONTROLES = {
   A01, A02, A03, A04, A05, A06, A07, A08, A09, A10, A11, A12, A13, A14, A15, A16, A17, A18, A19,
-  B01, B02, B03, B04, B05, B06, B07, B08,
+  B01, B02, B03, B04, B05, B06, B07, B08, B09,
   F01, F02, F03, F04, F05, F06, F07, F08,
 };
