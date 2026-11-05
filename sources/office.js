@@ -207,13 +207,26 @@ export async function lireWord() {
 }
 
 /** Sélectionne le paragraphe n° i dans Word (même ordre que body.paragraphs). */
-export async function selectionnerParagraphe(i) {
+export async function selectionnerParagraphe(i, passage = null) {
   return Word.run(async (context) => {
     const paras = context.document.body.paragraphs;
     paras.load('items/tableNestingLevel');
     await context.sync();
     const p = paras.items[i];
     if (!p) return false;
+    // Le passage précis s'il est retrouvé dans le paragraphe, sinon le paragraphe entier.
+    if (passage) {
+      try {
+        const res = p.search(passage, { matchCase: true });
+        res.load('items');
+        await context.sync();
+        if (res.items.length) {
+          res.items[0].select('Select');
+          await context.sync();
+          return true;
+        }
+      } catch { /* recherche refusée : paragraphe entier */ }
+    }
     p.select('Select');
     await context.sync();
     return true;

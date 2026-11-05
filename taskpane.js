@@ -8,7 +8,7 @@ import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Typographie', R: 'Restes de travail' };
-const VERSION = '0.6.2';
+const VERSION = '0.7.0';
 
 const etat = {
   profil: 'notice', termes: [], ignores: {},
@@ -410,6 +410,13 @@ function carteRegle(x) {
       el('span', { class: 'id' }, x.regle.id),
       el('span', { class: 'nom' }, x.regle.titre),
       corrigeables ? el('span', { class: 'badge auto', title: 'Corrigeables dans Word' }, `✓ ${corrigeables}`) : null,
+      (() => {
+        const premiere = x.occurrences.find((o) => o.i !== null && o.i >= 0);
+        if (!premiere || !enWord()) return null;
+        const b = el('button', { type: 'button', class: 'aller', title: 'Aller à la première occurrence dans le document', 'aria-label': 'Aller à la première occurrence' }, '↗');
+        b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); aller(premiere.i, premiere.passage); });
+        return b;
+      })(),
       el('span', { class: `badge ${x.regle.categorie === 'R' ? 'avertissement' : niveau}`, title: x.regle.categorie === 'R' ? 'À nettoyer avant l\'export' : niveau === 'bloquant' ? 'Bloquants' : 'À vérifier' }, `${n}`)),
     el('div', { class: 'corps' },
       el('p', { class: 'base' },
@@ -494,6 +501,9 @@ async function appliquer(liste) {
       : { erreur: true, texte: 'Aucune correction appliquée.', details: `${details.join(' · ')}. Relancer le contrôle ; si le problème persiste, copier le diagnostic (Réglages).` };
     etat.dernierRapport = { liste: liste.length, types: [...new Set(liste.map((c) => c.type))], ...r };
     await lireOuvert();
+    // Montrer la correction dans le document : premier paragraphe corrigé sélectionné.
+    const premier = liste.find((c) => c.i !== undefined && c.i >= 0);
+    if (r.corrections && premier) await aller(premier.i);
   } catch (e) {
     etat.retour = { erreur: true, texte: `Correction impossible : ${e.message}`, details: 'Document protégé, en lecture seule, ou fonction absente de cette version de Word. Copier le diagnostic (Réglages).' };
     etat.dernierRapport = { erreur: `${e.name} : ${e.message}${e.code ? ` (${e.code})` : ''}`, debug: e.debugInfo ? JSON.stringify(e.debugInfo).slice(0, 400) : null };
@@ -574,28 +584,45 @@ function afficherExigences() {
 }
 
 function ligneOccurrence(o, x) {
-  const allerPossible = etat.doc.source === 'word' && o.i !== null;
+  const allerPossible = enWord() && o.i !== null;
   const extrait = o.extrait
     ? (allerPossible
-      ? el('button', { class: 'extrait', type: 'button', title: 'Sélectionner le passage dans Word', onclick: () => aller(o.i) }, o.extrait)
+      ? el('button', { class: 'extrait', type: 'button', title: 'Aller au passage dans le document', onclick: () => aller(o.i, o.passage) }, o.extrait)
       : el('span', { class: 'extrait' }, o.i !== null ? `¶ ${o.i + 1} · ${o.extrait}` : o.extrait))
     : null;
+  // Alerte regroupée (« 35 lignes… ») : parcours des paragraphes concernés un à un.
+  const cibles = [...new Set((o.cibles || []).filter((i) => i !== null && i >= 0))];
+  let rang = 0;
+  const suivant = allerPossible && cibles.length > 1
+    ? el('button', { class: 'geste', type: 'button', title: 'Aller au paragraphe concerné suivant' }, `Suivant › 1/${cibles.length}`)
+    : null;
+  if (suivant) {
+    suivant.addEventListener('click', () => {
+      rang = (rang + 1) % cibles.length;
+      suivant.textContent = `Suivant › ${rang + 1}/${cibles.length}`;
+      aller(cibles[rang]);
+    });
+  }
   const zone = el('div', {});
+  const message = el('p', { class: `message${allerPossible ? ' cliquable' : ''}`, title: allerPossible ? 'Aller au passage dans le document' : '' }, o.message);
+  if (allerPossible) message.addEventListener('click', () => aller(o.i, o.passage));
   return el('li', { class: `occurrence ${o.reste ? 'avertissement' : o.niveau}${o.ignoree ? ' ignoree' : ''}` },
-    el('p', { class: 'message' }, o.message),
+    message,
     extrait,
     el('span', { class: 'gestes' },
       o.corrections?.length && enWord() && !o.ignoree ? (() => { const b = boutonCorriger(o.corrections, 'Corriger', zone); b.className = 'geste fort'; return b; })() : null,
       o.plage && enWord() ? el('button', { class: 'geste fort', type: 'button', title: 'Sélectionner les références de la catégorie pour le tri de Word', onclick: () => selectionnerPourTri(o.plage) }, 'Sélectionner pour trier') : null,
       o.ignoree
         ? el('button', { class: 'geste fort', type: 'button', title: 'Signaler de nouveau cette occurrence', onclick: () => retablir(o.cle) }, 'Rétablir')
-        : el('button', { class: 'geste', type: 'button', title: 'Ne plus signaler cette occurrence pour ce document', onclick: () => ignorer(o.cle) }, 'Ignorer')),
+        : el('button', { class: 'geste', type: 'button', title: 'Ne plus signaler cette occurrence pour ce document', onclick: () => ignorer(o.cle) }, 'Ignorer'),
+      suivant),
     zone);
 }
 
-async function aller(i) {
+async function aller(i, passage = null) {
+  if (i === null || i === undefined || i < 0 || !enWord()) return;
   try {
-    if (!(await selectionnerParagraphe(i))) statut('Passage introuvable : relancer le contrôle.', true);
+    if (!(await selectionnerParagraphe(i, passage))) statut('Passage introuvable : relancer le contrôle.', true);
   } catch (e) {
     statut(`Passage non sélectionné : ${e.message}`, true);
   }

@@ -16,7 +16,20 @@ const occ = (b, message, opts = {}) => ({
   cibles: opts.cibles || (b ? [b.i] : []),
   corrections: opts.corrections || [],
   plage: opts.plage || null,
+  passage: b && opts.pos ? passage(b, opts.pos) : null,
 });
+
+/** Morceau du texte à sélectionner dans Word autour d'une position (sans espace en bord, sans caractère spécial). */
+function passage(b, pos) {
+  const decalage = (b.intitule.length - b.intitule.trimStart().length) + ((b.label || '').replace(/\t/g, ' ').trim() ? (b.label || '').length : 0);
+  const debut = b.texte.indexOf(b.intitule.slice(pos, pos + 12).trim());
+  const i = debut >= 0 ? debut : pos - decalage;
+  if (i < 0 || i >= b.texte.length) return null;
+  let t = b.texte.slice(i, i + 40);
+  if (i + 40 < b.texte.length) t = t.replace(/\s+\S*$/, '');
+  t = t.trim();
+  return t.length >= 2 && !/[\^\t]/.test(t) ? t : null;
+}
 const corr = (type, blocs, extra = {}) => blocs.map((b) => ({ type, i: b.i, ...extra }));
 
 // ---------------------------------------------------------------- A. Conformité à la Note du jury
@@ -616,6 +629,26 @@ function A18(doc, S, { p }) {
           : 'Intitulé hors des six catégories de la Note : répartir ses références entre les six catégories.',
         { corrections: nouveau ? [{ type: 'renommer', i: b.i, texte: nouveau }] : [] }));
       }
+      else {
+        // Catégorie reconnue : intitulé et numéro exacts de la Note (« 5. Mémoire d'expertise comptable »).
+        const def = p.bibliographie_categories[courante.n - 1];
+        const exact = b.label ? def.titre : `${courante.n}. ${def.titre}`;
+        const lu = normaliser((b.label || '') + b.texte).replace(/[\s.:]+$/, '');
+        const num = /^(\d+)\s*[.)-]/.exec(lu);
+        if (lu !== normaliser(exact) || (num && Number(num[1]) !== courante.n)) {
+          o.push(occ(b, num && Number(num[1]) !== courante.n
+            ? `Numéro « ${num[1]} » : la catégorie « ${def.titre} » est la n° ${courante.n} de la Note.`
+            : `Intitulé à reprendre à l'identique de la Note : « ${courante.n}. ${def.titre} ».`,
+          { niveau: AV, corrections: [{ type: 'renommer', i: b.i, texte: exact }] }));
+        }
+      }
+      // Même catégorie sous deux intitulés : à fusionner.
+      const n = courante.n || courante.proche;
+      const double = n && cats.find((c) => (c.n || c.proche) === n);
+      if (double) {
+        courante.double = true;
+        o.push(occ(b, `Catégorie en double avec ¶ ${double.b.i + 1} (« ${p.bibliographie_categories[n - 1].titre} ») : regrouper ses références sous un seul intitulé.`));
+      }
       cats.push(courante);
     } else if (!b.titre) {
       if (courante) courante.entrees.push(b);
@@ -623,10 +656,11 @@ function A18(doc, S, { p }) {
     }
   }
   if (horsCategorie) o.push(occ(horsCategorie, 'Référence placée avant toute catégorie.', { niveau: AV }));
-  const numeros = cats.filter((c) => c.n).map((c) => c.n);
+  const ordonnees = cats.filter((c) => c.n && !c.double);
+  const numeros = ordonnees.map((c) => c.n);
   for (let k = 1; k < numeros.length; k++) {
-    if (numeros[k] <= numeros[k - 1]) {
-      const c = cats.filter((x) => x.n)[k];
+    if (numeros[k] < numeros[k - 1]) {
+      const c = ordonnees[k];
       o.push(occ(c.b, `« ${p.bibliographie_categories[c.n - 1].titre} » placée après « ${p.bibliographie_categories[numeros[k - 1] - 1].titre} » : ordre des six catégories.`));
     }
   }
