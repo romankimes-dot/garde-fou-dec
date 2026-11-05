@@ -33,6 +33,8 @@ Accueil, Compléments, « Plus de compléments », « Mes compléments », « Ch
   | Référence de la bibliographie | Référence bibliographique (retrait suspendu) |
   | Texte | Normal (taille 12, interligne 1,5) |
 
+  Typographie posée à la création, dans tout le texte versé : espace insécable avant « : ; ! ? » et à l'intérieur des guillemets « », apostrophe courbe (le collage « texte seulement » de Word en ligne remplace les insécables par des espaces ordinaires). Aucun mot ajouté ni retiré ; URL laissées telles quelles.
+
   Couleurs : titres de pièce, sections de la notice, annexes, parties et chapitres en bleu foncé `#1F3864` ; sous-titres, catégories de la bibliographie, sections et § du mémoire en bleu moyen `#2E5C8A` ; fonds des tableaux `#DCE6F2` (en-têtes, parties) et `#F2F2F2` (chapitres) ; texte courant en noir. Jamais de rouge, réservé aux modifications après une décision 4.2 (Note, p. 13).
 
   Repères « [Tableau n à insérer ici] » (style Consigne, signalés par F01 tant qu'ils restent) : légende « Tableau n – … » sans tableau à sa suite, section 3 ou 5 de la notice sans tableau, annexe n° 1 de la charte IA absente. L'outil n'écrit que le repère, jamais le contenu.

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { docx, lancer, regles } from './outils.js';
 import { lireDocx } from '../sources/docx.js';
-import { planifier, composer, lignePlan } from '../sources/composition.js';
+import { planifier, composer, lignePlan, typographier } from '../sources/composition.js';
 import { controler } from '../moteur/moteur.js';
 
 const gabarit = (nom) => readFile(new URL(`../gabarits/${nom}`, import.meta.url));
@@ -18,7 +18,7 @@ test('notice fictive → document au gabarit : garde remplie, sections, tableaux
   const garde = sortie.blocs.filter((b) => b.garde).map((b) => b.texte).join(' | ');
   for (const t of ['Sujet fictif', 'Prénom NOM', '75001 Paris', 'novembre 2026', "Demande d'agrément du sujet de mémoire"]) assert.ok(garde.includes(t), `garde : ${t}`);
   // Aucune consigne du gabarit ; seul le repère du tableau des outils (section 5 de la fixture sans tableau).
-  assert.deepEqual(sortie.blocs.filter((b) => b.consigne).map((b) => b.texte.slice(0, 30)), ['[Tableau 2 à insérer ici : tab']);
+  assert.deepEqual(sortie.blocs.filter((b) => b.consigne).map((b) => b.texte.slice(0, 30)), ['[Tableau 2 à insérer ici\u00a0: tab']);
   // Tableaux repris, plus un tableau par plan (synthétique, détaillé) et par tableau tapé en texte.
   const groupesPlan = plan.lignes.filter((l, k, t) => !l.omis && l.planLigne && !(t.slice(0, k).filter((x) => !x.omis).pop() || {}).planLigne).length;
   const tapes = plan.lignes.filter((l) => l.tableauTexte).length;
@@ -49,7 +49,7 @@ test('mémoire en texte simple : « Partie 1 – … » devient un titre numéro
     { intitule: 'Sujet fictif', auteur: 'NOM Prénom', adresse: '75001 Paris', session: "Session d'automne (novembre) 2027" });
   const sortie = await lireDocx(octets);
   const garde = sortie.blocs.filter((b) => b.garde).map((b) => b.texte).join(' | ');
-  assert.ok(garde.includes('SUJET FICTIF') && garde.includes("Diplôme d'expertise comptable – Session d'automne (novembre) 2027") && garde.includes('MÉMOIRE'));
+  assert.ok(garde.includes('SUJET FICTIF') && garde.includes('Diplôme d’expertise comptable – Session d’automne (novembre) 2027') && garde.includes('MÉMOIRE'));
   const titres = sortie.blocs.filter((b) => /^heading [1-4]$/.test(b.style)).map((b) => b.label.trim());
   assert.deepEqual(titres, ['Partie 1 –', 'Chapitre 1 –', 'Section 1 –', '§ 1 –']);
 });
@@ -142,4 +142,10 @@ test('plan de la notice : « Introduction de la partie (0,5 page) » est une sou
   // Espace insécable du titre conservée dans la cellule du plan (F04).
   const cellule = res.blocs.find((b) => b.tableau !== null && /Le constat/.test(b.texte));
   assert.ok(/constat\u00a0:/.test(cellule.texte), JSON.stringify(cellule.texte));
+});
+
+test('typographie posée à la création : insécables, apostrophe courbe, URL intacte', () => {
+  assert.equal(typographier("Problématique : l'expert ; ici ? « oui »"), 'Problématique\u00a0: l’expert\u00a0; ici\u00a0? «\u00a0oui\u00a0»');
+  assert.equal(typographier('https://example.org/a?b=c'), 'https://example.org/a?b=c');
+  assert.equal(typographier('Déjà\u00a0: bon'), 'Déjà\u00a0: bon');
 });
