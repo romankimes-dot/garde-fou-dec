@@ -193,11 +193,24 @@ export function tableauxDuCorps(documentXml) {
 
 // ---------------------------------------------------------------- assemblage du .docx
 
+// Typographie posée à la création (le collage « texte seulement » de Word en ligne remplace les insécables par des
+// espaces ordinaires) : insécable avant : ; ! ? et à l'intérieur de « », apostrophe courbe entre deux lettres.
+// Mise en forme seulement : aucun mot ajouté ni retiré. Les URL sont laissées telles quelles.
+const NBSP = '\u00a0';
+export function typographier(t) {
+  if (!t || /https?:\/\/|www\./i.test(t)) return t;
+  return t
+    .replace(/ (?=[:;!?])/g, NBSP)
+    .replace(/(?<=«) /g, NBSP)
+    .replace(/ (?=»)/g, NBSP)
+    .replace(/(?<=\p{L})'(?=\p{L})/gu, '’');
+}
+
 const echapper = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 function paragraphe(texte, style, gras = false) {
   const rPr = gras ? '<w:rPr><w:b/></w:rPr>' : '';
-  const runs = texte.split('\n').map((ligne, k) => `${k ? '<w:r><w:br/></w:r>' : ''}<w:r>${rPr}<w:t xml:space="preserve">${echapper(ligne)}</w:t></w:r>`).join('');
+  const runs = typographier(texte).split('\n').map((ligne, k) => `${k ? '<w:r><w:br/></w:r>' : ''}<w:r>${rPr}<w:t xml:space="preserve">${echapper(ligne)}</w:t></w:r>`).join('');
   return `<w:p><w:pPr><w:pStyle w:val="${style}"/></w:pPr>${runs}</w:p>`;
 }
 
@@ -342,7 +355,7 @@ const GRIS_CLAIR = COULEURS.fondLeger;
 function paragrapheCellule({ texte, gras, italique, souligne, retrait = 0, centre = false, lie = false }) {
   const rPr = `${gras ? '<w:b/>' : ''}${italique ? '<w:i/>' : ''}${souligne ? '<w:u w:val="single"/>' : ''}`;
   const pPr = `<w:pStyle w:val="Textetableau"/>${lie ? '<w:keepNext/>' : ''}${retrait ? `<w:ind w:left="${retrait}"/>` : ''}${centre ? '<w:jc w:val="center"/>' : ''}`;
-  return `<w:p><w:pPr>${pPr}</w:pPr><w:r>${rPr ? `<w:rPr>${rPr}</w:rPr>` : ''}<w:t xml:space="preserve">${echapper(texte)}</w:t></w:r></w:p>`;
+  return `<w:p><w:pPr>${pPr}</w:pPr><w:r>${rPr ? `<w:rPr>${rPr}</w:rPr>` : ''}<w:t xml:space="preserve">${echapper(typographier(texte))}</w:t></w:r></w:p>`;
 }
 
 // Dernière rangée liée au paragraphe suivant : la mention « Source : … » ne part pas seule sur la page suivante.
