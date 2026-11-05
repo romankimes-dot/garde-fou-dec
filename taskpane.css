@@ -334,3 +334,11 @@ textarea {
 
 body.correction-en-cours .bloc-auto button, body.correction-en-cours .gestes button, body.correction-en-cours .apercu button,
 body.correction-en-cours .confirmation button { pointer-events: none; opacity: .5; }
+
+.occurrence .message.cliquable { cursor: pointer; }
+.occurrence .message.cliquable:hover { color: var(--accent); }
+.regle .aller {
+  border: 1px solid var(--bord); background: var(--surface); color: var(--accent); border-radius: 6px;
+  padding: 0 6px; font-size: 12px; line-height: 18px; flex: none;
+}
+.regle .aller:hover { background: var(--accent-clair); }

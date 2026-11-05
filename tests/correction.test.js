@@ -52,6 +52,18 @@ test('corrections : insécables, espaces, unités, accents, numéros, guillemets
     `Le «${n}middle market${n}» et «${n}PME${n}»`, 'Contexte en version 1.1', '7. Limites du mémoire', 'Mesure de 12" et "x']);
 });
 
+test('corrections : deux-points en fin de paragraphe, plusieurs guillemets et insécables dans un même paragraphe', async () => {
+  const { corriger } = await import('../sources/correction.js');
+  const textes = ['Sont volontairement exclus : ', 'Le "middle market" et le "haut de gamme" : deux cas ; trois ?'];
+  const items = imiterWord(textes);
+  const doc = { blocs: textes.map((texte, i) => ({ i, texte })) };
+  await corriger([{ type: 'insecables', i: 0 }, { type: 'guillemets', i: 1 }, { type: 'insecables', i: 1 }], doc, (await regles()).parametres);
+  const n = '\u00a0';
+  assert.deepEqual(items.map((p) => p.text), [
+    `Sont volontairement exclus${n}: `,
+    `Le «${n}middle market${n}» et le «${n}haut de gamme${n}»${n}: deux cas${n}; trois${n}?`]);
+});
+
 test('corrections : paragraphe modifié depuis le contrôle laissé tel quel', async () => {
   const { corriger } = await import('../sources/correction.js');
   const items = imiterWord(['Texte  modifié']);
