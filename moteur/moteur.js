@@ -62,6 +62,7 @@ export function controler(doc, regles, options) {
     infos,
     pagination: pagination(doc, S, p.caracteres_par_page),
     diagnostic: doc.diagnostic,
+    titres: S.titres.map((t) => ({ i: t.i, role: t.role, niveau: t.niveau, zone: t.zone || null, section: t.sectionNotice || null })),
   };
 }
 

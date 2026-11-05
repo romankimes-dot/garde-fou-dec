@@ -115,14 +115,16 @@ function A06(doc, S, { profil }) {
     if (z) for (const b of S.blocsDe(z.debut, z.fin)) if (!b.consigne && b.intitule && b.tableau === null) cibles.add(b);
   }
   let sansNumero = 0;
+  const decimaux = [];
   for (const b of [...cibles].sort((x, y) => x.i - y.i)) {
     const lab = b.intitule.replace(/^[•▪◦\-–]\s*/, '');
     if (INTERDIT.test(lab)) {
       o.push(occ(b, 'Numérotation proscrite (I, 1.1, A, a)…) : utiliser Partie / Chapitre / Section / §.'));
       continue;
     }
-    if (!b.titre || b.role !== 'plan' || b.niveau < 1 || b.niveau > 4) continue;
     const pl = lirePlan(lab);
+    if (pl && pl.decimal) decimaux.push({ b, pl });
+    if (!b.titre || b.role !== 'plan' || b.niveau < 1 || b.niveau > 4) continue;
     if (!pl) {
       if (doc.labelsLus) sansNumero++;
       if (doc.labelsLus && sansNumero <= 10) {
@@ -131,6 +133,11 @@ function A06(doc, S, { profil }) {
     } else if (pl.niveau !== b.niveau && profil === 'memoire') {
       o.push(occ(b, `Titre de niveau ${b.niveau} numéroté « ${pl.mot} » : « ${MOT_ATTENDU[b.niveau]} » attendu.`));
     }
+  }
+  // Numéro décimal (« Section 1.2 ») : une seule alerte pour l'ensemble, sur le premier.
+  if (decimaux.length) {
+    const { b, pl } = decimaux[0];
+    o.push(occ(b, `${decimaux.length} intitulé(s) à numéro décimal (« ${nomMot(pl.mot)} ${pl.brut} ») : numéro simple attendu (« ${nomMot(pl.mot)} ${pl.numero} »), la Note proscrivant le découpage 1.1.`, { niveau: AV }));
   }
   const infos = doc.labelsLus ? [] : ['Numéros automatiques non lus : seuls les numéros tapés sont contrôlés. Contrôle complet sur le .docx.'];
   return { occurrences: o, infos };
@@ -141,6 +148,8 @@ function arbreDuPlan(lignes) {
   const racine = { niveau: 0, enfants: [], b: null };
   const pile = [racine];
   const ruptures = [];
+  // Deux usages admis : numérotation reprise à 1 sous chaque niveau supérieur, ou continue sur tout le plan.
+  const dernier = {};
   for (const b of lignes) {
     const pl = lirePlan(b.intitule);
     if (!pl) continue;
@@ -149,7 +158,9 @@ function arbreDuPlan(lignes) {
     const noeud = { niveau: pl.niveau, numero: pl.numero, mot: pl.mot, b, enfants: [] };
     const freres = parent.enfants.filter((e) => e.niveau === pl.niveau);
     const attendu = freres.length ? freres[freres.length - 1].numero + 1 : 1;
-    if (pl.numero !== attendu) ruptures.push({ noeud, attendu });
+    const continu = (dernier[pl.niveau] || 0) + 1;
+    dernier[pl.niveau] = pl.numero;
+    if (pl.numero !== attendu && pl.numero !== continu) ruptures.push({ noeud, attendu });
     if (parent.niveau && pl.niveau > parent.niveau + 1) ruptures.push({ noeud, saut: true });
     parent.enfants.push(noeud);
     pile.push(noeud);
@@ -640,6 +651,9 @@ function B08(doc, S, { p }) {
   }
   const vus = new Map();
   for (const b of doc.blocs) {
+    // Intitulé en capitales (titre tapé, ligne de plan) : ses mots ne sont pas des sigles.
+    const lettres = b.texte.match(/\p{L}/gu) || [];
+    if (lettres.length >= 8 && (b.texte.match(/\p{Lu}/gu) || []).length / lettres.length > 0.6) continue;
     if (!estTexte(b) || S.dans('biblio', b.i) || S.dans('abreviations', b.i) || S.dans('sommaire', b.i) || S.dans('tdm', b.i)) continue;
     const t = b.texte;
     for (const m of t.matchAll(SIGLE)) {

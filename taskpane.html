@@ -39,6 +39,7 @@
   <section id="synthese" class="synthese" hidden>
     <div class="feu" id="feu"><span class="pastille" aria-hidden="true"></span><strong id="feu-texte"></strong></div>
     <p id="comptes" class="discret"></p>
+    <button id="copier-alertes" class="copier" type="button" title="Règle, message et forme des passages, mots masqués">Copier les alertes</button>
   </section>
 
   <section id="infos" class="infos" hidden></section>
@@ -59,9 +60,8 @@
       <button id="enregistrer-termes" type="button">Enregistrer</button>
       <button id="oublier-ignores" type="button">Rétablir les occurrences ignorées</button>
       <button id="copier-diagnostic" type="button">Diagnostic de lecture</button>
-      <button id="copier-alertes" type="button">Alertes pour calibrage</button>
     </div>
-    <p class="discret">Le diagnostic décrit la structure lue (nombre de paragraphes, titres, tableaux) ; les alertes pour calibrage donnent le numéro de règle et le message, sans les extraits du document, termes du cabinet et restes de travail masqués. À relire avant de les transmettre.</p>
+    <p class="discret">Le diagnostic décrit la structure lue (nombre de paragraphes, titres, tableaux) ; « Copier les alertes », sous la synthèse, donne règle, message et forme des passages (mots remplacés par « … », numéros conservés), sans page de garde, termes du cabinet ni restes de travail. À relire avant de les transmettre.</p>
     <pre id="diagnostic" class="diagnostic" hidden></pre>
   </details>
 

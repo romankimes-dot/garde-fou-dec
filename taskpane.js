@@ -7,11 +7,11 @@ import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Propreté' };
-const VERSION = '0.2.1';
+const VERSION = '0.2.2';
 
 const etat = {
   profil: 'notice', mode: 'redaction', termes: [], ignores: {},
-  regles: null, doc: null, cleDoc: null, dansWord: false, nomDoc: '',
+  regles: null, doc: null, cleDoc: null, dansWord: false, nomDoc: '', ouvertes: new Set(),
 };
 
 // ---------------------------------------------------------------- stockage local (ce navigateur seulement)
@@ -78,9 +78,10 @@ async function demarrer() {
     const texte = alertesPourCalibrage();
     if (!texte) { statut('Lancer d\'abord un contrôle.'); return; }
     $('diagnostic').textContent = texte;
-    $('diagnostic').hidden = false;
     try { await navigator.clipboard.writeText(texte); statut('Alertes copiées, sans extrait du document : les relire avant de les transmettre.'); } catch {
-      statut('Alertes affichées ci-dessous : les sélectionner et les copier.');
+      $('diagnostic').hidden = false;
+      $('reglages').open = true;
+      statut('Alertes affichées dans Réglages : les sélectionner et les copier.');
     }
   });
   $('copier-diagnostic').addEventListener('click', async () => {
@@ -94,19 +95,56 @@ async function demarrer() {
   });
 }
 
-/** Alertes sans extrait du document : règle, niveau, message ; termes du cabinet et restes de travail masqués. */
+/**
+ * Alertes pour calibrage : règle, message, et forme des passages en cause (mots remplacés par « … », numéros,
+ * ponctuation et mots du plan conservés). Messages identiques regroupés. Termes du cabinet et restes de travail masqués.
+ */
+const MOTS_GARDES = new Set(['partie', 'chapitre', 'section', 'paragraphe', 'introduction', 'conclusion', 'annexe', 'p', 'page', 'pages',
+  'sommaire', 'notice', 'plan', 'bibliographie', 'synthese', 'outil', 'out']);
+const SANS_FORME = new Set(['A15', 'A16', 'B08', 'F01']);
+
+function forme(i) {
+  const b = i !== null && i !== undefined ? etat.doc.blocs[i] : null;
+  if (!b) return '';
+  if (b.garde) return '(page de garde)';
+  const t = ((b.label || '') + b.texte).replace(/\s+/g, ' ').trim()
+    .replace(/\p{L}+/gu, (w) => (w.length === 1 || /^[IVXLC]+$/.test(w) || MOTS_GARDES.has(w.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()) ? w : '…'))
+    .replace(/…(?:[\s'’-]*…)+/g, '…')
+    .replace(/\d{4,}|\d[\d\s.]{4,}\d/g, '#');
+  return t.length > 70 ? `${t.slice(0, 45)} […] ${t.slice(-20)}` : t;
+}
+
 function alertesPourCalibrage() {
   if (!etat.dernier) return null;
   const r = etat.dernier;
   const lignes = [`Garde-fou ${VERSION} · ${r.profil} · ${r.mode} · ${r.source} · ${etat.doc.diagnostic?.paragraphes} paragraphes · ${r.comptes.bloquants} bloquant(s), ${r.comptes.avertissements} à vérifier`];
   for (const x of r.resultats) {
     if (!x.occurrences.length) continue;
-    lignes.push(`${x.regle.id} ${x.regle.titre} (${x.occurrences.length})`);
+    lignes.push('', `${x.regle.id} ${x.regle.titre} (${x.occurrences.length})`);
+    const groupes = new Map();
     for (const o of x.occurrences) {
       let m = o.message;
       if (x.regle.id === 'A16' || x.regle.id === 'F01') m = m.replace(/«[^»]*»/g, '« … »');
-      lignes.push(`  ${o.niveau === 'bloquant' ? '■' : '▲'} ${m}`);
+      const cle = `${o.niveau === 'bloquant' ? '■' : '▲'} ${m}`;
+      if (!groupes.has(cle)) groupes.set(cle, []);
+      groupes.get(cle).push(o);
     }
+    for (const [cle, liste] of groupes) {
+      lignes.push(`  ${cle}${liste.length > 1 ? ` (×${liste.length})` : ''}`);
+      if (SANS_FORME.has(x.regle.id)) continue;
+      for (const o of liste.slice(0, 3)) {
+        const f = forme(o.i);
+        if (f) lignes.push(`      ¶ ${o.i + 1} · ${f}`);
+      }
+      if (liste.length > 3) lignes.push('      …');
+    }
+  }
+  if (r.titres?.length) {
+    lignes.push('', `Structure lue (${r.titres.length} titres) : ¶ · niveau · rôle · pièce · forme`);
+    for (const t of r.titres.slice(0, 120)) {
+      lignes.push(`  ¶ ${t.i + 1} · n${t.niveau} · ${t.role || '-'}${t.section ? ` ${t.section}` : ''} · ${t.zone || '-'} · ${forme(t.i)}`);
+    }
+    if (r.titres.length > 120) lignes.push('  …');
   }
   return lignes.join('\n');
 }
@@ -134,6 +172,7 @@ async function lireOuvert() {
     etat.erreur = null;
     etat.nomDoc = nomDuDocument();
     etat.cleDoc = 'w:' + etat.nomDoc;
+    etat.ouvertes.clear();
     afficher(performance.now() - debut);
   } catch (e) {
     etat.erreur = `${e.name || 'Erreur'} : ${e.message}${e.code ? ` (${e.code})` : ''}`;
@@ -149,6 +188,7 @@ async function lireFichier(f) {
     etat.erreur = null;
     etat.nomDoc = f.name;
     etat.cleDoc = 'f:' + f.name;
+    etat.ouvertes.clear();
     afficher(performance.now() - debut);
   } catch (e) {
     etat.erreur = e.message;
@@ -217,12 +257,18 @@ function carteRegle(x) {
   const niveau = bloquants ? 'bloquant' : 'avertissement';
   const n = x.occurrences.length;
   const libelle = niveau === 'bloquant' ? `${n} bloquant${n > 1 ? 's' : ''}` : `${n} à vérifier`;
-  return el('details', { class: 'regle', open: '' },
+  const carte = el('details', { class: 'regle' },
     el('summary', {},
       el('span', { class: 'nom' }, `${x.regle.id} ${x.regle.titre}`),
       el('span', { class: `badge ${niveau}` }, libelle)),
     el('p', { class: 'base' }, `${x.regle.nature === 'exigence' ? 'Note du jury' : 'Préférence'} : ${x.regle.base}`),
     el('ul', { class: 'occurrences' }, ...x.occurrences.map((o) => ligneOccurrence(o))));
+  // Repliée par défaut ; l'état ouvert survit au réaffichage (Ignorer, changement de mode).
+  carte.open = etat.ouvertes.has(x.regle.id);
+  carte.addEventListener('toggle', () => {
+    if (carte.open) etat.ouvertes.add(x.regle.id); else etat.ouvertes.delete(x.regle.id);
+  });
+  return carte;
 }
 
 function ligneOccurrence(o) {

@@ -19,7 +19,7 @@ export const ZONES = [
   ['figures', /^(table|liste) des (figures|tableaux|illustrations)/],
 ];
 
-const PLAN = /^(partie|chapitre|section|§|paragraphe)\s*(\d+)\b/;
+const PLAN = /^(partie|chapitre|section|§|paragraphe)\s*(\d+(?:\.\d+)*)\b/;
 const MOT_NIVEAU = { partie: 1, chapitre: 2, section: 3, '§': 4, paragraphe: 4 };
 // Pièces faites de lignes de plan ou d'entrées : leurs lignes ne sont pas des titres du document.
 const LISTES = new Set(['plan-synth', 'plan-det', 'sommaire', 'tdm', 'liste-annexes', 'figures', 'abreviations']);
@@ -32,10 +32,15 @@ export function zoneDe(texte) {
   return null;
 }
 
-/** Niveau P/C/S/§ et numéro lus dans un intitulé (« Chapitre 2 – … » → { niveau: 2, numero: 2 }). */
+/**
+ * Niveau P/C/S/§ et numéro lus dans un intitulé (« Chapitre 2 – … » → { niveau: 2, numero: 2 }).
+ * Numéro décimal (« Section 1.2 ») : le dernier nombre fait foi, `decimal` le signale.
+ */
 export function lirePlan(intitule) {
   const m = PLAN.exec(normaliser(intitule).replace(/^[•▪◦]\s*/, ''));
-  return m ? { mot: m[1], niveau: MOT_NIVEAU[m[1]], numero: Number(m[2]) } : null;
+  if (!m) return null;
+  const nombres = m[2].split('.');
+  return { mot: m[1], niveau: MOT_NIVEAU[m[1]], numero: Number(nombres[nombres.length - 1]), decimal: nombres.length > 1, brut: m[2] };
 }
 
 function ressembleTitre(b) {
