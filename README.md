@@ -73,7 +73,7 @@ Le PDF exporté reste la référence pour la pagination exacte (`scripts/mise-en
 | `consignes.json` | Consignes des gabarits, exclues des contrôles (`python3 outils/extraire-consignes.py DOSSIER_DES_GABARITS`) |
 | `moteur/` | Structure (pièces, plan, annexes) et contrôles |
 | `sources/` | Lecture du document ouvert (Office.js) ou d'un .docx ; corrections dans Word |
-| `gabarits/` | Gabarits Word au format du jury (produits par `scripts/mise-en-forme/construire.py` de dec-memoire, recopiés ici) |
+| `gabarits/` | Gabarits Word au format du jury : **source unique** (décision du 05/11/2026), régénérés par `python3 outils/gabarits/construire.py` (python-docx) ; dec-memoire n'en garde plus de copie |
 | `tests/` | Gabarits et documents fictifs (`fabriquer-fixtures.py`), modèle officiel de l'annexe n° 1, tests |
 
 Nouvelle version : `python3 outils/version.py 1.2.3` (volet, manifeste et paramètre `?v=` de chaque fichier chargé, pour que Word ne mélange jamais deux versions en cache).
