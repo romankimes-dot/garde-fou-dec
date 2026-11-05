@@ -59,24 +59,30 @@ export function apercu(c, bloc) {
  * Remplacements par le contexte : chaque passage à corriger est cherché avec ses voisins (« n : » plutôt que « : »),
  * sans espace en tête ni en fin de chaîne et sans caractères génériques, que Word en ligne refuse.
  */
+function contexte(t, debut, longueur, nouveau) {
+  let a = debut;
+  let b = debut + longueur;
+  for (let k = 0; k < 3 && a > 0; k++) a--;
+  while (a > 0 && /\s/.test(t[a])) a--;
+  for (let k = 0; k < 3 && b < t.length; k++) b++;
+  while (b < t.length && /\s/.test(t[b - 1])) b++;
+  // En bord de paragraphe (espace finale, alinéa), le contexte est rogné sans toucher au passage lui-même.
+  while (a < debut && /\s/.test(t[a])) a++;
+  while (b > debut + longueur && /\s/.test(t[b - 1])) b--;
+  const cherche = t.slice(a, b);
+  if (/^\s|\s$|\^/.test(cherche) || cherche.length > 250 || cherche.length < 2) return null;
+  const d = debut - a;
+  const remplace = cherche.slice(0, d) + nouveau + cherche.slice(d + longueur);
+  return remplace === cherche ? null : { cherche, remplace: () => remplace };
+}
+
 function parContexte(t, motif, transformer) {
-  const vus = new Map();
-  let fin = -1; // passages qui se chevauchent : le suivant attend la passe suivante
+  const liste = [];
   for (const m of t.matchAll(motif)) {
-    let a = m.index;
-    let b = m.index + m[0].length;
-    for (let k = 0; k < 3 && a > 0; k++) a--;
-    while (a > 0 && /\s/.test(t[a])) a--;
-    for (let k = 0; k < 3 && b < t.length; k++) b++;
-    while (b < t.length && /\s/.test(t[b - 1])) b++;
-    const cherche = t.slice(a, b);
-    if (/^\s|\s$|\^/.test(cherche) || cherche.length > 250 || a < fin) continue;
-    fin = b;
-    const debut = m.index - a;
-    const remplace = cherche.slice(0, debut) + transformer(m) + cherche.slice(debut + m[0].length);
-    if (remplace !== cherche) vus.set(cherche, remplace);
+    const r = contexte(t, m.index, m[0].length, transformer(m));
+    if (r) liste.push(r);
   }
-  return [...vus].map(([cherche, remplace]) => ({ cherche, remplace: () => remplace }));
+  return liste;
 }
 
 /** Recherches et remplacements dans un paragraphe. */
@@ -90,10 +96,13 @@ function remplacements(c, bloc, parametres) {
         ...parContexte(t, / »/g, () => `${NBSP}»`),
       ];
     case 'guillemets': {
-      const pos = pairesGuillemets(t);
-      if (!pos) return [];
-      // Word rapproche " de “ ” : on vérifie que les occurrences trouvées sont exactement les guillemets droits attendus.
-      return [{ cherche: '"', attendu: pos.length, tous: (x, k) => (k % 2 ? `${NBSP}»` : `«${NBSP}`) }];
+      // Le premier guillemet droit restant : fermant si un « est encore ouvert avant lui, ouvrant sinon.
+      const i = t.indexOf('"');
+      if (i < 0) return [];
+      const avant = t.slice(0, i);
+      const ouvert = (avant.match(/«/g) || []).length > (avant.match(/»/g) || []).length;
+      const r = contexte(t, i, 1, ouvert ? `${NBSP}»` : `«${NBSP}`);
+      return r ? [r] : [];
     }
     case 'espaces':
       return [...parContexte(t, / {2,}/g, () => ' '), ...parContexte(t, / ,/g, () => ',')];
@@ -169,36 +178,37 @@ export async function corriger(liste, doc, parametres) {
 
     // Recherches dans les paragraphes.
     const recherches = cibles.filter((x) => !['renommer', 'sans-numero', 'style-normal', 'trier'].includes(x.c.type));
-    // Un type à la fois, sur le texte réel du paragraphe (relu après chaque passe) : les corrections successives
-    // d'un même paragraphe ne se gênent pas. Une erreur de Word sur un type n'empêche pas les autres.
+    // Un remplacement à la fois par paragraphe, puis relecture du texte réel : Word en ligne décale les
+    // remplacements groupés d'un même paragraphe. Une erreur de Word sur un type n'empêche pas les autres.
     const erreurs = [];
     for (const type of new Set(recherches.map((x) => x.c.type))) {
       try {
-        const lesCibles = recherches.filter((x) => x.c.type === type);
-        for (let passe = 0; passe < 4; passe++) {
-          if (passe > 0) { lesCibles.forEach((x) => x.para.load('text')); await context.sync(); }
+        // Guillemets : seulement si les paires étaient sans ambiguïté au contrôle.
+        let actives = recherches.filter((x) => x.c.type === type && (type !== 'guillemets' || pairesGuillemets(x.bloc.texte)));
+        ignorees += recherches.filter((x) => x.c.type === type).length - actives.length;
+        for (let passe = 0; passe < 80 && actives.length; passe++) {
+          if (passe > 0) { actives.forEach((x) => x.para.load('text')); await context.sync(); }
           const lots = [];
-          for (const { c, para, bloc } of lesCibles) {
-            const courant = passe > 0 ? { ...bloc, texte: para.text.replace(/[\r\u0007\u000b]/g, ' ') } : bloc;
-            for (const r of remplacements(c, courant, parametres)) {
-              const res = para.search(r.cherche, { matchCase: true, ...(r.options || {}) });
-              res.load('items/text');
-              lots.push({ res, r });
-            }
+          for (const x of actives) {
+            const courant = passe > 0 ? { ...x.bloc, texte: x.para.text.replace(/[\r\u0007\u000b]/g, ' ') } : x.bloc;
+            const r = remplacements(x.c, courant, parametres).find(Boolean);
+            if (!r) continue;
+            const res = x.para.search(r.cherche, { matchCase: true, ...(r.options || {}) });
+            res.load('items/text');
+            lots.push({ x, res, r });
           }
           if (!lots.length) break;
           await context.sync();
-          let n = 0;
-          for (const { res, r } of lots) {
-            trouves += res.items.length;
-            if (r.attendu !== undefined && (res.items.length !== r.attendu || res.items.some((x) => x.text !== '"'))) { ignorees++; continue; }
-            const items = r.premier ? res.items.slice(0, 1) : res.items;
-            items.forEach((x, k) => { x.insertText(r.tous ? r.tous(x.text, k) : r.remplace(x.text), 'Replace'); n++; });
+          const suite = [];
+          for (const { x, res, r } of lots) {
+            if (!res.items.length) continue; // passage introuvable : paragraphe abandonné
+            trouves++;
+            res.items[0].insertText(r.remplace(res.items[0].text), 'Replace');
+            corrections++;
+            if (!['numero-simple'].includes(type)) suite.push(x);
           }
-          if (!n) break;
           await context.sync();
-          corrections += n;
-          if (type === 'guillemets' || type === 'numero-simple' || type === 'accents') break; // une passe suffit
+          actives = suite;
         }
       } catch (e) {
         erreurs.push(`${type} : ${e.message}${e.debugInfo?.errorLocation ? ` (${e.debugInfo.errorLocation})` : ''}`);
