@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parents[1]
-MODULES = ["sources/docx.js", "sources/office.js", "sources/correction.js", "sources/zip.js", "sources/xml.js",
+MODULES = ["sources/docx.js", "sources/office.js", "sources/correction.js", "sources/composition.js", "sources/zip.js", "sources/xml.js",
            "moteur/moteur.js", "moteur/controles.js", "moteur/structure.js", "moteur/texte.js"]
 
 v = sys.argv[1]

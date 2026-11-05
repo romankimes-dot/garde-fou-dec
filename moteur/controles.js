@@ -297,7 +297,7 @@ function A09(doc, S, { p }) {
         const texte = proche.label ? def.titre : `${k + 1}. ${def.titre}`;
         o.push(occ(proche, `Section ${k + 1} « ${def.titre} » absente ; titre approchant : à renommer « ${k + 1}. ${def.titre} » si son contenu y répond.`,
           { corrections: [{ type: 'renommer', i: proche.i, texte, style: ref?.styleBuiltIn || null }] }));
-      } else o.push(occ(null, `Section ${k + 1} « ${def.titre} » absente : à rédiger (ordre imposé, après la section ${k}).`));
+      } else o.push(occ(null, `Section ${k + 1} « ${def.titre} » absente : à rédiger (ordre imposé, ${k ? `après la section ${k}` : 'en tête de la notice'}).`));
       return;
     }
     if (t.i < dernier) o.push(occ(t, `Section ${k + 1} placée avant la section ${k} : ordre imposé.`));

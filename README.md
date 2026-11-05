@@ -13,6 +13,7 @@ Accueil, Compléments, « Plus de compléments », « Mes compléments », « Ch
 - **Document** : demande d'agrément (notice) ou mémoire. Un seul contrôle : exigences de la Note bloquantes, préférences et typographie à vérifier, restes de travail (consignes, repères, TODO, commentaires, révisions) comptés à part, à nettoyer avant l'export PDF.
 - **Contrôler ce document** : lit le document ouvert, mise en page comprise. Un clic sur un extrait sélectionne le passage. **Contrôler un fichier .docx** : même contrôle sur une copie.
 - Chaque règle : sa base (Note du jury, page citée, ou préférence), « Comment corriger », et dans Word les boutons **Corriger** (aperçu avant/après pour les changements de texte) et **Sélectionner pour trier** (tri de la bibliographie par Accueil, Trier).
+- **Gabarit** (mise en forme) : le texte collé sans mise en forme dans le document ouvert est versé dans un **nouveau document** créé depuis le gabarit du jury (page de garde remplie, table des matières, styles, tableaux repris) ; le document d'origine n'est pas modifié et l'outil n'écrit aucun texte. Gabarits vierges téléchargeables depuis le même onglet.
 - **Exigences de la Note** : toutes les exigences, contrôlées ou à vérifier soi-même, dépôt compris, et les codes du sujet.
 - **Copier les alertes** : règles et messages, passages masqués, pour le calibrage.
 - **Réglages** : termes du cabinet, des clients et des personnes (conservés dans ce navigateur seulement) ; occurrences ignorées ; diagnostic de lecture.
@@ -47,6 +48,7 @@ Le PDF exporté reste la référence pour la pagination exacte (`scripts/mise-en
 | `consignes.json` | Consignes des gabarits, exclues des contrôles (`python3 outils/extraire-consignes.py DOSSIER_DES_GABARITS`) |
 | `moteur/` | Structure (pièces, plan, annexes) et contrôles |
 | `sources/` | Lecture du document ouvert (Office.js) ou d'un .docx ; corrections dans Word |
+| `gabarits/` | Gabarits Word au format du jury (produits par `scripts/mise-en-forme/construire.py` de dec-memoire, recopiés ici) |
 | `tests/` | Gabarits et documents fictifs (`fabriquer-fixtures.py`), modèle officiel de l'annexe n° 1, tests |
 
 Nouvelle version : `python3 outils/version.py 1.2.3` (volet, manifeste et paramètre `?v=` de chaque fichier chargé, pour que Word ne mélange jamais deux versions en cache).

@@ -1,14 +1,15 @@
 // Volet du complément Word : lit le document ouvert (Office.js) ou un .docx, lance les contrôles, affiche le résultat.
 
 import { lireDocx } from './sources/docx.js';
-import { lireWord, selectionnerParagraphe } from './sources/office.js';
+import { lireWord, selectionnerParagraphe, ouvrirNouveauDocument } from './sources/office.js';
+import { planifier, composer, enBase64 } from './sources/composition.js';
 import { corriger, annuler, apercu, selectionnerPlage, empreinte, LIBELLES } from './sources/correction.js';
 import { controler } from './moteur/moteur.js';
 import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Typographie', R: 'Restes de travail' };
-const VERSION = '0.8.0';
+const VERSION = '0.9.0';
 
 const etat = {
   profil: 'notice', termes: [], ignores: {},
@@ -47,10 +48,14 @@ async function demarrer() {
     document.querySelectorAll(`input[name="${nom}"]`).forEach((r) => r.addEventListener('change', () => {
       etat[nom] = r.value;
       stockage.ecrire({ [nom]: r.value });
+      document.body.className = document.body.className.replace(/\bprofil-\S+/g, '').trim() + ` profil-${etat.profil}`;
+      $('resultat-forme').replaceChildren();
+      $('creer-forme').hidden = true;
       if (etat.doc) afficher(); else afficherExigences();
     }));
   }
   $('termes').value = etat.termes.join('\n');
+  installerMiseEnForme(s.champs || {});
   afficherExigences();
   for (const b of document.querySelectorAll('.onglets [role="tab"]')) b.addEventListener('click', () => ouvrirOnglet(b.id.replace('onglet-', '')));
   for (const b of document.querySelectorAll('[data-filtre]')) {
@@ -693,6 +698,90 @@ function ignorer(cle) {
   etat.ignores[etat.cleDoc] = [...liste];
   stockage.ecrire({ ignores: etat.ignores });
   afficher();
+}
+
+// ---------------------------------------------------------------- mise en forme (texte simple → gabarit)
+
+const NOMS_STYLES = {
+  Titrehorsplan: 'Titre de pièce', Titrenotice: 'Section notice', 'Titrecatégorie': 'Catégorie', Titreannexe: 'Annexe',
+  Heading1: 'Partie', Heading2: 'Chapitre', Heading3: 'Section', Heading4: '§', Normal: 'Texte',
+};
+
+function installerMiseEnForme(champs) {
+  document.body.classList.add(`profil-${etat.profil}`);
+  const ids = ['intitule', 'auteur', 'adresse', 'date', 'session'];
+  const maintenant = new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  for (const id of ids) {
+    const champ = $(`champ-${id}`);
+    champ.value = champs[id] ?? (id === 'date' ? maintenant : '');
+    champ.addEventListener('change', () => stockage.ecrire({ champs: lireChamps() }));
+  }
+  $('analyser-forme').addEventListener('click', analyserForme);
+  $('creer-forme').addEventListener('click', creerForme);
+}
+
+function lireChamps() {
+  const c = {};
+  for (const id of ['intitule', 'auteur', 'adresse', 'date', 'session']) c[id] = $(`champ-${id}`).value.trim();
+  return c;
+}
+
+/** Lit le document (ou reprend la dernière lecture) et montre le style attribué à chaque paragraphe. */
+async function analyserForme() {
+  if (etat.dansWord && etat.doc?.source !== 'word') await lireOuvert();
+  if (!etat.doc) { statut('Mise en forme : ouvrir le document dans Word, ou contrôler d\'abord un .docx.', true); return; }
+  if (!etat.doc) return;
+  const plan = planifier(etat.doc, etat.regles, etat.profil);
+  etat.planForme = plan;
+  const compte = {};
+  for (const l of plan.lignes) {
+    const cle = l.omis ? null : l.champ ? 'Table (champ Word)' : l.tableau !== undefined ? 'Tableau' : NOMS_STYLES[l.style] + (l.gras ? ' (gras)' : '');
+    if (cle) compte[cle] = (compte[cle] || 0) + 1;
+  }
+  const visibles = plan.lignes.filter((l) => !l.omis && (l.champ || l.tableau !== undefined || l.style !== 'Normal' || l.gras));
+  $('resultat-forme').replaceChildren(el('div', { class: 'carte-simple' },
+    el('h2', { class: 'titre-section' }, 'Ce qui sera mis en forme'),
+    el('div', { class: 'styles-forme' }, ...Object.entries(compte).map(([k, n]) => el('span', {}, `${k} : ${n}`))),
+    ...plan.avertissements.map((a) => el('p', { class: 'bandeau' }, a)),
+    el('p', { class: 'discret' }, `Page de garde et entrées de table du texte d'origine remplacées par celles du gabarit (${plan.lignes.filter((l) => l.omis).length} paragraphe(s)). Titres et tableaux ci-dessous ; le reste en texte courant.`),
+    el('ul', { class: 'liste-forme' }, ...visibles.map((l) => el('li', {},
+      el('span', { class: 'style' }, l.champ ? 'Table' : l.tableau !== undefined ? 'Tableau' : NOMS_STYLES[l.style] || l.style),
+      el('span', { class: l.gras ? 'gras' : '' }, l.tableau !== undefined ? `Tableau ${l.tableau + 1} (repris tel quel)` : l.texte.slice(0, 140)))))));
+  $('creer-forme').hidden = false;
+}
+
+function telecharger(octets, nom) {
+  const url = URL.createObjectURL(new Blob([octets], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+  const a = el('a', { href: url, download: nom, class: 'bouton-lien' }, `Télécharger ${nom}`);
+  return a;
+}
+
+/** Compose le nouveau document au gabarit et l'ouvre dans Word (sinon, le propose au téléchargement). */
+async function creerForme() {
+  if (!etat.planForme) return;
+  const champs = lireChamps();
+  stockage.ecrire({ champs });
+  statut('Création du document au gabarit…');
+  try {
+    const nomGabarit = etat.profil === 'memoire' ? 'gabarit-memoire.docx' : 'gabarit-demande-agrement.docx';
+    const gabarit = await fetch(`gabarits/${nomGabarit}?v=${VERSION}`).then((r) => { if (!r.ok) throw new Error(`gabarit introuvable (${r.status})`); return r.arrayBuffer(); });
+    const octets = await composer(gabarit, etat.planForme, etat.profil, { ...champs, tableaux: etat.doc.tableauxXml || [] });
+    const nom = etat.profil === 'memoire' ? 'memoire-mis-en-forme.docx' : 'demande-agrement-mise-en-forme.docx';
+    let ouvert = false;
+    if (etat.dansWord) {
+      try { ouvert = await ouvrirNouveauDocument(enBase64(octets)); } catch (e) { ouvert = false; statut(`Ouverture refusée par Word : ${e.message}`, true); }
+    }
+    const lien = telecharger(octets, nom);
+    $('resultat-forme').prepend(el('div', { class: 'retour' },
+      el('strong', {}, ouvert ? 'Nouveau document ouvert dans Word.' : 'Document prêt.'),
+      el('span', { class: 'details' }, ouvert
+        ? 'Dans le nouveau document : clic droit sur la table des matières, « Mettre à jour les champs », puis lancer Garde-fou.'
+        : 'Word n\'a pas pu l\'ouvrir directement : le télécharger, puis l\'ouvrir dans Word (en ligne : le déposer dans OneDrive).'),
+      el('div', { class: 'ligne-boutons' }, lien)));
+    statut(ouvert ? 'Document au gabarit créé et ouvert.' : 'Document au gabarit prêt au téléchargement.');
+  } catch (e) {
+    statut(`Mise en forme impossible : ${e.message}`, true);
+  }
 }
 
 demarrer().catch((e) => statut(`Démarrage impossible : ${e.message}`, true));
