@@ -109,7 +109,8 @@ function lignesDuPlan(doc, S, profil) {
 
 function A06(doc, S, { profil }) {
   const o = [];
-  const cibles = new Set([...S.titres.filter((t) => t.role === 'plan')]);
+  // Notice : la nomenclature vise le plan proposé (plans synthétique et détaillé), pas les titres de la notice elle-même.
+  const cibles = new Set(profil === 'notice' ? [] : S.titres.filter((t) => t.role === 'plan'));
   for (const nom of ['plan-synth', 'plan-det']) {
     const z = S.zone(nom);
     if (z) for (const b of S.blocsDe(z.debut, z.fin)) if (!b.consigne && b.intitule && b.tableau === null) cibles.add(b);
@@ -275,6 +276,7 @@ function A12(doc, S, { p }) {
   const lignes = S.blocsDe(z.debut, z.fin).filter((b) => !b.consigne && b.intitule && b.tableau === null);
   let intro = null; let conclusion = null; let total = 0;
   const valeurs = [];
+  const sansPages = [];
   for (const b of lignes) {
     const n = normaliser(b.intitule).replace(/^[•▪◦-]\s*/, '');
     const m = TYPE_LIGNE.exec(n);
@@ -282,10 +284,17 @@ function A12(doc, S, { p }) {
     const pg = lirePages(b.intitule);
     if (m[1] === 'introduction') intro = b;
     if (m[1] === 'conclusion' && !/partielle/.test(n)) conclusion = b;
-    if (pg === null) o.push(occ(b, 'Nombre prévisionnel de pages absent sur cette ligne.'));
+    if (pg === null) sansPages.push({ b, type: m[1] });
     const pl = lirePlan(b.intitule);
     valeurs.push({ b, pl, pg, type: m[1] });
     if (pg !== null && (m[1] === 'introduction' || m[1] === 'partie' || (m[1] === 'conclusion' && b === conclusion))) total += pg;
+  }
+  // Lignes sans pages : une alerte par ligne, ou une seule par niveau au-delà de trois.
+  const parType = new Map();
+  for (const x of sansPages) parType.set(x.type, [...(parType.get(x.type) || []), x.b]);
+  for (const [type, blocs] of parType) {
+    if (blocs.length <= 3) blocs.forEach((b) => o.push(occ(b, 'Nombre prévisionnel de pages absent sur cette ligne.')));
+    else o.push(occ(blocs[0], `${blocs.length} lignes « ${nomMot(type)} » sans nombre prévisionnel de pages (exigé à chaque niveau).`));
   }
   if (!intro) o.push(occ(z.titre, 'Introduction absente du plan détaillé (avec son nombre de pages).'));
   if (!conclusion) o.push(occ(z.titre, 'Conclusion absente du plan détaillé (avec son nombre de pages).'));
@@ -636,7 +645,7 @@ function B07(doc, S, { profil }) {
 
 const SIGLE = /(?<![\p{L}\p{N}])([A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ0-9&]{1,9})(?![\p{L}\p{N}])/gu;
 const ROMAIN = /^[IVXLCDM]+$/;
-const NON_SIGLES = new Set(['TODO', 'FIXME', 'XXX', 'SOURCE', 'TROUVER']);
+const NON_SIGLES = new Set(['TODO', 'FIXME', 'XXX', 'SOURCE', 'TROUVER', 'TOTAL', 'NB']);
 
 function B08(doc, S, { p }) {
   const o = [];

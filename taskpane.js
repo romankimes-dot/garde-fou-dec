@@ -7,7 +7,7 @@ import { pages } from './moteur/texte.js';
 
 const $ = (id) => document.getElementById(id);
 const CATEGORIES = { A: 'Conformité à la Note du jury', B: 'Structure', F: 'Propreté' };
-const VERSION = '0.2.2';
+const VERSION = '0.2.3';
 
 const etat = {
   profil: 'notice', mode: 'redaction', termes: [], ignores: {},
@@ -78,21 +78,53 @@ async function demarrer() {
     const texte = alertesPourCalibrage();
     if (!texte) { statut('Lancer d\'abord un contrôle.'); return; }
     $('diagnostic').textContent = texte;
-    try { await navigator.clipboard.writeText(texte); statut('Alertes copiées, sans extrait du document : les relire avant de les transmettre.'); } catch {
-      $('diagnostic').hidden = false;
-      $('reglages').open = true;
-      statut('Alertes affichées dans Réglages : les sélectionner et les copier.');
-    }
+    if (await copier(texte)) { statut('Alertes copiées, sans extrait du document : les relire avant de les transmettre.'); return; }
+    $('diagnostic').hidden = false;
+    $('reglages').open = true;
+    selectionner($('diagnostic'));
+    statut('Copie refusée par Word : alertes affichées et sélectionnées dans Réglages, faire Ctrl+C (Cmd+C).', true);
   });
   $('copier-diagnostic').addEventListener('click', async () => {
     const d = { complement: VERSION, source: etat.doc?.source || null, ...(etat.doc?.diagnostic || {}), erreur: etat.erreur || null };
     const texte = JSON.stringify(d, null, 1);
     $('diagnostic').textContent = texte;
     $('diagnostic').hidden = false;
-    try { await navigator.clipboard.writeText(texte); statut('Diagnostic copié (sans texte du document).'); } catch {
-      statut('Diagnostic affiché ci-dessous : le sélectionner et le copier.');
-    }
+    if (await copier(texte)) { statut('Diagnostic copié (sans texte du document).'); return; }
+    selectionner($('diagnostic'));
+    statut('Copie refusée par Word : diagnostic sélectionné ci-dessous, faire Ctrl+C (Cmd+C).', true);
   });
+}
+
+/**
+ * Presse-papiers. Dans le volet Word, l'API Clipboard est souvent refusée (ou ne répond jamais) :
+ * copie d'abord par execCommand, synchrone dans le clic, puis par l'API avec un délai maximal.
+ */
+async function copier(texte) {
+  const zone = document.createElement('textarea');
+  zone.value = texte;
+  zone.setAttribute('readonly', '');
+  zone.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;';
+  document.body.append(zone);
+  zone.focus();
+  zone.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  zone.remove();
+  if (ok) return true;
+  if (!navigator.clipboard?.writeText) return false;
+  try {
+    await Promise.race([navigator.clipboard.writeText(texte), new Promise((_, non) => setTimeout(() => non(new Error('délai')), 1500))]);
+    return true;
+  } catch { return false; }
+}
+
+function selectionner(element) {
+  const plage = document.createRange();
+  plage.selectNodeContents(element);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(plage);
+  element.scrollIntoView({ block: 'nearest' });
 }
 
 /**
@@ -103,12 +135,22 @@ const MOTS_GARDES = new Set(['partie', 'chapitre', 'section', 'paragraphe', 'int
   'sommaire', 'notice', 'plan', 'bibliographie', 'synthese', 'outil', 'out']);
 const SANS_FORME = new Set(['A15', 'A16', 'B08', 'F01']);
 
+/** Vocabulaire de la Note (titres des sections de la notice et des catégories de la bibliographie) : laissé visible. */
+function motsDeLaNote() {
+  if (motsDeLaNote.cache) return motsDeLaNote.cache;
+  const p = etat.regles?.parametres || {};
+  const titres = [...(p.notice_sections || []), ...(p.bibliographie_categories || [])].map((x) => x.titre).join(' ');
+  motsDeLaNote.cache = new Set((titres.match(/\p{L}{3,}/gu) || []).map(sansAccent));
+  return motsDeLaNote.cache;
+}
+const sansAccent = (w) => w.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
 function forme(i) {
   const b = i !== null && i !== undefined ? etat.doc.blocs[i] : null;
   if (!b) return '';
   if (b.garde) return '(page de garde)';
   const t = ((b.label || '') + b.texte).replace(/\s+/g, ' ').trim()
-    .replace(/\p{L}+/gu, (w) => (w.length === 1 || /^[IVXLC]+$/.test(w) || MOTS_GARDES.has(w.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()) ? w : '…'))
+    .replace(/\p{L}+/gu, (w) => (w.length === 1 || /^[IVXLC]+$/.test(w) || MOTS_GARDES.has(sansAccent(w)) || motsDeLaNote().has(sansAccent(w)) ? w : '…'))
     .replace(/…(?:[\s'’-]*…)+/g, '…')
     .replace(/\d{4,}|\d[\d\s.]{4,}\d/g, '#');
   return t.length > 70 ? `${t.slice(0, 45)} […] ${t.slice(-20)}` : t;
