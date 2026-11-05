@@ -1,0 +1,120 @@
+"""Écrit le manifeste du complément Word (manifest.xml) pour l'adresse où le complément est servi.
+
+    python3 scripts/garde-fou/construire-manifeste.py https://exemple.github.io/garde-fou-dec
+
+Le manifeste se charge ensuite dans Word : Accueil, Compléments, « Plus de compléments »,
+« Mes compléments », « Charger mon complément ».
+"""
+import sys
+from pathlib import Path
+from urllib.parse import urlparse
+from xml.sax.saxutils import escape
+
+ID = "8013f312-6e73-4266-9329-5b900c844e1e"  # fixe : Word reconnaît ainsi les mises à jour du même complément
+VERSION = "0.2.1.0"
+ICI = Path(__file__).resolve().parent
+
+MODELE = """<?xml version="1.0" encoding="UTF-8"?>
+<!-- Manifeste du complément Word « Garde-fou DEC » (généré par construire-manifeste.py, ne pas modifier à la main). -->
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+           xsi:type="TaskPaneApp">
+  <Id>{id}</Id>
+  <Version>{version}</Version>
+  <ProviderName>Roman Kimes</ProviderName>
+  <DefaultLocale>fr-FR</DefaultLocale>
+  <DisplayName DefaultValue="Garde-fou DEC"/>
+  <Description DefaultValue="Contrôles de forme de la notice et du mémoire DEC (Note du jury), sans IA. Le texte ne quitte pas Word."/>
+  <IconUrl DefaultValue="{base}/icones/icone-32.png"/>
+  <HighResolutionIconUrl DefaultValue="{base}/icones/icone-64.png"/>
+  <SupportUrl DefaultValue="{base}/taskpane.html"/>
+  <AppDomains>
+    <AppDomain>{origine}</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Document"/>
+  </Hosts>
+  <Requirements>
+    <Sets DefaultMinVersion="1.1">
+      <Set Name="WordApi" MinVersion="1.3"/>
+    </Sets>
+  </Requirements>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="{base}/taskpane.html"/>
+  </DefaultSettings>
+  <!-- Lecture du document et sélection du passage signalé ; le complément n'écrit jamais dans le document. -->
+  <Permissions>ReadWriteDocument</Permissions>
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Document">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="Debut.Titre"/>
+            <Description resid="Debut.Description"/>
+            <LearnMoreUrl resid="Volet.Url"/>
+          </GetStarted>
+          <FunctionFile resid="Volet.Url"/>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="GardeFou.Groupe">
+                <Label resid="Groupe.Libelle"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icone.16"/>
+                  <bt:Image size="32" resid="Icone.32"/>
+                  <bt:Image size="80" resid="Icone.80"/>
+                </Icon>
+                <Control xsi:type="Button" id="GardeFou.Bouton">
+                  <Label resid="Bouton.Libelle"/>
+                  <Supertip>
+                    <Title resid="Bouton.Libelle"/>
+                    <Description resid="Bouton.Description"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icone.16"/>
+                    <bt:Image size="32" resid="Icone.32"/>
+                    <bt:Image size="80" resid="Icone.80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>GardeFou</TaskpaneId>
+                    <SourceLocation resid="Volet.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Icone.16" DefaultValue="{base}/icones/icone-16.png"/>
+        <bt:Image id="Icone.32" DefaultValue="{base}/icones/icone-32.png"/>
+        <bt:Image id="Icone.80" DefaultValue="{base}/icones/icone-80.png"/>
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="Volet.Url" DefaultValue="{base}/taskpane.html"/>
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="Debut.Titre" DefaultValue="Garde-fou DEC"/>
+        <bt:String id="Groupe.Libelle" DefaultValue="Mémoire DEC"/>
+        <bt:String id="Bouton.Libelle" DefaultValue="Garde-fou"/>
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="Debut.Description" DefaultValue="Onglet Accueil, bouton Garde-fou : contrôles de forme de la notice et du mémoire."/>
+        <bt:String id="Bouton.Description" DefaultValue="Contrôler la forme de la notice ou du mémoire (Note du jury), sans IA."/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>
+"""
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2 or not sys.argv[1].startswith("https://"):
+        sys.exit("Usage : construire-manifeste.py https://adresse/du/complement")
+    base = sys.argv[1].rstrip("/")
+    u = urlparse(base)
+    xml = MODELE.format(id=ID, version=VERSION, base=escape(base), origine=f"{u.scheme}://{u.netloc}")
+    (ICI.parent / "manifest.xml").write_text(xml, encoding="utf-8")
+    print("manifest.xml écrit pour", base)

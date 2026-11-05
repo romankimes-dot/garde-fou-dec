@@ -1,0 +1,9 @@
+{
+  "name": "garde-fou",
+  "private": true,
+  "type": "module",
+  "description": "Complément Word de contrôle de forme du mémoire DEC et de la notice (sans IA).",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}
