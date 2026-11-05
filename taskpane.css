@@ -88,6 +88,8 @@ body.depot-survol { outline: 3px dashed var(--accent); outline-offset: -6px; }
 
 .infos { font-size: 12px; color: var(--discret); margin: 0 0 10px; padding-left: 2px; }
 .infos p { margin: 2px 0; }
+.infos summary { cursor: pointer; }
+.infos .alerte-profil { color: var(--rouge); font-weight: 600; }
 
 .categorie { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--discret); }
 .regle { background: var(--surface); border: 1px solid var(--bord); border-radius: 8px; margin-bottom: 6px; }
@@ -114,7 +116,19 @@ body.depot-survol { outline: 3px dashed var(--accent); outline-offset: -6px; }
 }
 .occurrence button.extrait { cursor: pointer; text-decoration: underline dotted; }
 .occurrence button.extrait:hover { color: var(--texte); background: none; }
-.occurrence .ignorer { justify-self: start; font-size: 11.5px; padding: 1px 6px; color: var(--discret); }
+.occurrence .gestes { display: flex; gap: 6px; }
+.occurrence .ignorer { font-size: 11.5px; padding: 1px 6px; color: var(--discret); }
+.conseil { padding: 0 10px 6px; font-size: 12px; margin: 0; }
+.regle button.auto { margin: 0 10px 8px; font-size: 12px; padding: 4px 8px; border-color: var(--accent); color: var(--accent); }
+.regle button.auto.arme { background: var(--accent); color: var(--accent-texte); }
+.regle p.auto { padding: 0 10px 6px; }
+.exigences { list-style: none; margin: 6px 0 0; padding: 0; font-size: 12px; }
+.exigence { display: grid; gap: 2px; padding: 6px 0; border-top: 1px solid var(--bord); }
+.statut-ex { font-size: 11px; font-weight: 600; }
+.exigence.ok .statut-ex { color: var(--vert); }
+.exigence.alerte .statut-ex { color: var(--orange); }
+.exigence.manuel .statut-ex { color: var(--rouge); }
+.exigence.auto .statut-ex { color: var(--discret); }
 
 .conformes { margin-top: 12px; }
 .conformes summary { cursor: pointer; color: var(--discret); font-size: 12px; }
@@ -139,3 +153,13 @@ textarea {
   margin: 6px 0 0; padding: 6px; font: 11px ui-monospace, Menlo, monospace; white-space: pre-wrap;
   background: var(--fond); border: 1px solid var(--bord); border-radius: 6px; user-select: all;
 }
+
+.bloc-auto { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 10px 8px; }
+.bloc-auto button.auto { margin: 0; }
+.apercu { border: 1px solid var(--bord); border-radius: 6px; padding: 6px 8px; margin-top: 4px; background: var(--fond); font-size: 12px; }
+.apercu ul { list-style: none; margin: 4px 0; padding: 0; max-height: 260px; overflow: auto; }
+.apercu li { display: grid; gap: 1px; padding: 4px 0; border-top: 1px solid var(--bord); }
+.apercu .avant { color: var(--discret); text-decoration: line-through; }
+.apercu .apres { color: var(--texte); }
+.groupe-ex { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--discret); padding: 10px 0 2px; list-style: none; }
+.codes { margin: 2px 0 6px; padding-left: 16px; font-size: 11.5px; }

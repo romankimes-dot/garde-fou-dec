@@ -30,7 +30,7 @@ export function controler(doc, regles, options) {
     if (niveau === 'off') continue;
     const f = CONTROLES[r.id];
     if (!f) continue;
-    if (r.source === 'docx' && doc.source !== 'docx') {
+    if (r.source === 'docx' && !doc.miseEnPage) {
       resultats.push({ regle: r, niveau, occurrences: [], horsSource: true });
       continue;
     }
@@ -51,6 +51,9 @@ export function controler(doc, regles, options) {
     }
     resultats.push({ regle: r, niveau, occurrences });
   }
+
+  if (profil === 'memoire' && S.zone('notice') && !S.corps) infos.unshift({ regle: '-', texte: 'Ce document ressemble à une notice (titre « Notice explicative », ni introduction ni conclusion) : choisir « Notice » en haut du volet.' });
+  if (profil === 'notice' && !S.notice && S.corps) infos.unshift({ regle: '-', texte: 'Ce document ressemble à un mémoire (introduction et conclusion, pas de notice explicative) : choisir « Mémoire » en haut du volet.' });
 
   return {
     profil,

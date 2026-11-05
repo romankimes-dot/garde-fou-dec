@@ -1,7 +1,7 @@
 // Lecture du document ouvert dans Word (en ligne ou sur ordinateur) par l'interface officielle (Office.js),
 // vers le modèle commun du moteur. Lecture seule : rien n'est écrit dans le document.
 
-import { STYLES_TITRES, STYLES_CONSIGNE } from './docx.js';
+import { STYLES_TITRES, STYLES_CONSIGNE, paquetPlat, lirePaquet, piedPlat } from './docx.js';
 
 const BUILTIN_TITRE = /^Heading([1-9])$/;
 const BUILTIN_TOC = /^Toc([1-9])$/;
@@ -113,6 +113,7 @@ export async function lireWord() {
         niveau: tableau === null ? niveau : 0,
         role: tableau === null || role === 'toc' ? role : null,
         style: nom || null,
+        styleBuiltIn: builtin || null,
         tableau,
         ligne: cellule ? cellule.rowIndex : null,
         colonne: cellule ? cellule.cellIndex : null,
@@ -127,6 +128,39 @@ export async function lireWord() {
     });
 
     if (premiereSection) for (let k = 0; k < premiereSection.items.length && k < blocs.length; k++) blocs[k].garde = true;
+
+    // Mise en page : le contenu Open XML du corps (styles, sections, mise en forme) est relu par le lecteur .docx.
+    let miseEnPage = null;
+    let ooxml = 'non lu';
+    try {
+      const corps = document.body.getOoxml();
+      const pieds = sections.items.map((s) => s.getFooter('Primary').getOoxml());
+      await context.sync();
+      const lu = await lirePaquet(paquetPlat(corps.value), 'word');
+      const analyses = [];
+      for (const p of pieds) analyses.push(await piedPlat(p.value));
+      miseEnPage = lu.miseEnPage;
+      // Sections : celles d'Office.js font foi pour les pieds ; marges reprises du contenu Open XML s'il les donne.
+      miseEnPage.sections = sections.items.map((_, n) => ({
+        ...(miseEnPage.sections[n] || { n, premierBloc: 0, gauche: null, droite: null }),
+        pieds: [{ type: 'default', ...analyses[n] }],
+      }));
+      if (lu.blocs.length === blocs.length) {
+        lu.blocs.forEach((x, k) => {
+          blocs[k].effectif = x.effectif;
+          blocs[k].direct = x.direct;
+          blocs[k].image = x.image;
+          blocs[k].rouge = x.rouge;
+          if (blocs[k].garde && x.texte.length > blocs[k].texte.length) blocs[k].texte = x.texte; // zones de texte
+        });
+        ooxml = `lu (${lu.blocs.length} paragraphes)`;
+      } else {
+        miseEnPage.paragraphes = false;
+        ooxml = `lu, ${lu.blocs.length} paragraphes contre ${blocs.length} : contrôle paragraphe par paragraphe sur le .docx`;
+      }
+    } catch (e) {
+      ooxml = `échec : ${e.message}`;
+    }
 
     // Chaque lien est rattaché au premier paragraphe, à partir du précédent, qui contient son texte.
     let j = 0;
@@ -154,7 +188,7 @@ export async function lireWord() {
       entetes: entetes.map((e) => e.text).filter((t) => t && t.trim()),
       proprietes,
       labelsLus: true,
-      miseEnPage: null,
+      miseEnPage,
       diagnostic: {
         paragraphes: blocs.length,
         titres: blocs.filter((b) => b.titre).length,
@@ -166,6 +200,7 @@ export async function lireWord() {
         revisions: revisions === null ? 'non lues' : revisions,
         notes: notes === null ? 'non lues' : notes.length,
         versions: ['1.3', '1.4', '1.5', '1.6'].filter(api),
+        ooxml,
       },
     };
   });
